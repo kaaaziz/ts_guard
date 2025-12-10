@@ -185,8 +185,6 @@ git checkout -b feature/my-feature
 
 ## 📄 License
 
-Apache License 2.0
-
 Copyright (c) 2025 TSGuard Contributors
 
 ---
@@ -194,4 +192,4 @@ Copyright (c) 2025 TSGuard Contributors
 ## 📧 Contact
 
 Maintainer: Imane HCN
-Repository: [https://github.com/ImaneHCN/TSGuard](https://github.com/ImaneHCN/TSGuard)
+Repository: [https://github.com/kaaaziz/ts\_guard](https://github.com/ImaneHCN/TSGuard)
