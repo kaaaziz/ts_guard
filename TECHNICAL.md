@@ -9,8 +9,8 @@ This document provides comprehensive technical details for TSGuard, including ma
 
 ## Table of Contents
 
-1. [Hybrid GNN–LSTM Model](#Hybrid GNN–LSTM Model)
-2. [Constraint Engine](#Constraint Engine)
+1. [Hybrid GNN–LSTM Model](#Hybrid-GNN–LSTM-Model)
+2. [Constraint Engine](#Constraint-Engine)
 3. [Model Architecture Details](#model-architecture-details)
 4. [Advanced Usage](#advanced-usage)
 5. [Detailed Input Requirements](#detailed-input-requirements)
