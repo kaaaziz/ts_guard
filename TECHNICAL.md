@@ -9,13 +9,14 @@ This document provides comprehensive technical details for TSGuard, including ma
 
 ## Table of Contents
 
-1. [Mathematical Formulations](#mathematical-formulations)
-2. [Model Architecture Details](#model-architecture-details)
-3. [Advanced Usage](#advanced-usage)
-4. [Detailed Input Requirements](#detailed-input-requirements)
-5. [API Reference](#api-reference)
-6. [Implementation Details](#implementation-details)
-7. [Performance Optimization](#performance-optimization)
+1. [Hybrid GNN–LSTM Model](#Hybrid GNN–LSTM Model)
+2. [Constraint Engine](#Constraint Engine)
+3. [Model Architecture Details](#model-architecture-details)
+4. [Advanced Usage](#advanced-usage)
+5. [Detailed Input Requirements](#detailed-input-requirements)
+6. [API Reference](#api-reference)
+7. [Implementation Details](#implementation-details)
+8. [Performance Optimization](#performance-optimization)
 
 ---
 
