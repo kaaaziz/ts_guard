@@ -213,9 +213,3 @@ Copyright (c) 2025 TSGuard Contributors
 * **Email:** [abhijith.senthilkumar@uni.lu](mailto:abhijith.senthilkumar@uni.lu)
 * **Affiliation:** SnT, University of Luxembourg, Esch-sur-Alzette, Luxembourg
 
----
-
-### 👨‍🔬 Abdelaziz Kella
-
-* **Email:** [kaa.kella.abdelaziz@gmail.com](mailto:kaa.kella.abdelaziz@gmail.com)
-* **Affiliation:** Hassiba Benbouali University, Chlef, Algeria
