@@ -100,6 +100,22 @@ This section provides a visual overview of the main functionalities of TSGuard. 
 
 ---
 
+---
+
+## 🎬 Demo Video
+
+A full demonstration of TSGuard’s real-time monitoring, imputation, and interactive features is available here:
+
+[Watch the Demo Video](https://drive.google.com/file/d/1ZNjlYOPJsEwFdzibX0PuElxRjD1wvtOT/view?usp=sharing)
+
+The video illustrates:
+
+- Real-time sensor monitoring on the AQI-36 network.
+- Visualization of missing and imputed values (temporal and spatial views).
+- Fallback estimation when constraints are violated.
+- Interaction with the built-in chatbot for explanations and diagnostics.
+
+
 ## 📂 Project Structure
 
 ```text
