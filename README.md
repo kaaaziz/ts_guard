@@ -12,6 +12,8 @@ TSGuard is an advanced research framework designed for robust, real-time imputat
 
 The framework is particularly well-suited for applications involving particulate matter (PM2.5) monitoring, air quality assessment, and other spatially-distributed environmental measurements where temporal continuity and spatial coherence are essential for accurate analysis and decision-making.
 
+> **📚 For detailed technical documentation** including mathematical formulations, advanced usage examples, and comprehensive API reference, see [TECHNICAL.md](TECHNICAL.md).
+
 ---
 
 ## Table of Contents
@@ -22,14 +24,15 @@ The framework is particularly well-suited for applications involving particulate
 4. [Installation](#installation)
 5. [Quick Start Guide](#quick-start-guide)
 6. [System Architecture](#system-architecture)
-7. [Data Formats and Requirements](#data-formats-and-requirements)
+7. [Data Formats](#data-formats)
 8. [Model Details](#model-details)
-9. [Advanced Usage](#advanced-usage)
-10. [Evaluation and Comparisons](#evaluation-and-comparisons)
-11. [Configuration and Customization](#configuration-and-customization)
-12. [Reproducibility](#reproducibility)
-13. [Limitations and Considerations](#limitations-and-considerations)
-14. [Contributors and Citation](#contributors-and-citation)
+9. [Screenshots](#screenshots)
+10. [Results](#results)
+11. [Evaluation and Comparisons](#evaluation-and-comparisons)
+12. [Configuration and Customization](#configuration-and-customization)
+13. [Reproducibility](#reproducibility)
+14. [Limitations and Considerations](#limitations-and-considerations)
+15. [Contributors and Citation](#contributors-and-citation)
 
 ---
 
@@ -112,9 +115,7 @@ ts_guard/
 
 ## Methodology
 
-### Problem Formulation
-
-Given a network of N sensors producing time series data X_t ∈ ℝ^N at discrete time steps t, where some entries may be missing (represented as NaN), TSGuard aims to reconstruct missing values by leveraging:
+TSGuard addresses the challenge of reconstructing missing values in sensor network time series data by leveraging:
 
 1. **Spatial dependencies**: Nearby sensors often exhibit correlated measurements due to shared environmental conditions
 2. **Temporal patterns**: Historical observations at each sensor location provide predictive information
@@ -124,38 +125,11 @@ Given a network of N sensors producing time series data X_t ∈ ℝ^N at discret
 
 TSGuard employs a hybrid GCN-LSTM architecture:
 
-#### Spatial Processing (Graph Convolutional Network)
+- **Spatial Processing (GCN)**: Graph Convolutional Network processes spatial relationships between sensors using adjacency matrices derived from geographic distances
+- **Temporal Processing (LSTM)**: Long Short-Term Memory network captures temporal patterns in the sequence of spatial embeddings
+- **Training**: Model is trained with masked MSE loss focusing on reconstructing missing values
 
-- **Adjacency Matrix Construction**: 
-  - Computes pairwise haversine distances between sensor locations
-  - Applies Gaussian kernel: A_ij = exp(-d_ij² / σ²) where d_ij is the distance and σ² is a learned variance parameter
-  - Adds self-loops and applies symmetric normalization: Â = D^(-1/2) A D^(-1/2)
-
-- **Graph Convolution Layer**:
-  - Performs spatial aggregation: h_i^(spatial) = ReLU(Â · X_t · W)
-  - Projects node features into a hidden representation space
-  - Includes dropout for regularization
-
-#### Temporal Processing (LSTM)
-
-- **Sequence Modeling**:
-  - Processes the sequence of spatial embeddings [h_1^(spatial), ..., h_T^(spatial)]
-  - Single-layer LSTM captures temporal dependencies and patterns
-  - Produces hidden states encoding both spatial and temporal information
-
-- **Output Projection**:
-  - Linear layer maps LSTM hidden states back to per-sensor predictions
-  - Generates next-step estimates for all sensors simultaneously
-
-#### Training Objective
-
-The model is trained using a masked Mean Squared Error (MSE) loss:
-
-```
-L = (1/|M|) Σ_{(t,i) ∈ M} (ŷ_{t,i} - y_{t,i})²
-```
-
-where M is the set of (time, sensor) pairs that were originally missing, ŷ_{t,i} is the model prediction, and y_{t,i} is the ground truth value. This ensures the model focuses learning on reconstructing missing values rather than simply memorizing observed data.
+> **For detailed mathematical formulations and architecture details**, see [TECHNICAL.md](TECHNICAL.md#mathematical-formulations). This ensures the model learns meaningful patterns for imputation.
 
 ### Inference Pipeline
 
@@ -207,7 +181,7 @@ During real-time inference, TSGuard follows a multi-stage process:
    # For CUDA 11.8 (example - adjust for your CUDA version)
    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
    
-   # For CUDA 12.1
+   # For CUDA 12.1m
    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
    ```
 
@@ -272,8 +246,8 @@ During real-time inference, TSGuard follows a multi-stage process:
 ### Example Workflow
 
 ```python
-# Programmatic usage example
-from models.simulation_original import train_model, run_simulation_with_live_imputation
+# Basic programmatic usage
+from models.simulation_original import train_model
 import pandas as pd
 
 # Load data
@@ -289,9 +263,9 @@ model = train_model(
     epochs=20,
     model_path="generated/model_TSGuard.pth"
 )
-
-# Run inference (see models/simulation_original.py for full API)
 ```
+
+> **For advanced usage examples, custom configurations, and API reference**, see [TECHNICAL.md](TECHNICAL.md#advanced-usage).
 
 ---
 
@@ -348,64 +322,22 @@ Model Checkpoint    Visualization & Logging
 
 ---
 
-## Data Formats and Requirements
+## Data Formats
 
-### Training Data (Ground Truth)
+TSGuard requires three input files:
 
-**File Format**: CSV or TXT (comma-separated or tab-separated)
+1. **Training Data (Ground Truth)**: CSV or TXT with complete time series
+   - Column: `datetime` (or `timestamp`, `date`, `time`)
+   - Additional columns: One per sensor (sensor IDs as column names)
 
-**Required Structure**:
-```
-datetime,sensor_001,sensor_002,sensor_003,...
-2024-01-01 00:00:00,25.3,24.8,26.1,...
-2024-01-01 01:00:00,25.5,25.0,26.3,...
-...
-```
+2. **Sensor Data (Incomplete)**: CSV or TXT with missing values
+   - Same structure as training data
+   - Contains NaN entries representing missing data
 
-**Column Requirements**:
-- **Time column**: Must be named `datetime`, `timestamp`, `date`, or `time` (case-insensitive), or use datetime index
-- **Sensor columns**: All other columns are treated as sensor measurements
-- **Sensor IDs**: Numeric IDs are automatically zero-padded to 6 digits (e.g., `1` → `000001`)
+3. **Positions File**: CSV with sensor coordinates
+   - Columns: `sensor_id`, `latitude`, `longitude`
 
-**Data Quality**:
-- Timestamps must be parseable by pandas `to_datetime()`
-- Missing values in ground truth should be minimal (used for training supervision)
-- Recommended: Hourly or sub-hourly resolution
-
-### Sensor Data (Incomplete/Missing)
-
-**File Format**: Same as training data (CSV or TXT)
-
-**Structure**: Identical column structure to training data, but with missing values (NaN, empty cells, or explicit missing indicators)
-
-**Purpose**: Represents real-world scenario where sensors fail or data transmission is interrupted
-
-### Positions File
-
-**File Format**: CSV
-
-**Required Columns**:
-- `sensor_id`: Unique identifier matching sensor column names in data files
-- `latitude`: Decimal degrees (WGS84)
-- `longitude`: Decimal degrees (WGS84)
-
-**Alternative Format**: Two-column CSV with `longitude`, `latitude` and sensor IDs as row index
-
-**Example**:
-```csv
-sensor_id,latitude,longitude
-000001,48.8566,2.3522
-000002,48.8606,2.3376
-...
-```
-
-### Data Alignment
-
-TSGuard automatically:
-- Aligns sensor columns between training and sensor data files
-- Matches sensor IDs in position files with data columns
-- Handles temporal alignment (intersects timestamps)
-- Validates coordinate systems and data types
+> **For detailed file format specifications, examples, and validation requirements**, see [TECHNICAL.md](TECHNICAL.md#detailed-input-requirements).
 
 ---
 
@@ -439,87 +371,79 @@ Default configuration (configurable via `utils/config.py`):
 
 ---
 
-## Advanced Usage
+## Screenshots
 
-### Programmatic API
+### Data Upload Interface
 
-#### Training
+![Data Upload](images/screenshots/data_upload.png)
 
-```python
-from models.simulation_original import train_model
-import pandas as pd
+The sidebar provides an intuitive interface for uploading training data, sensor data with missing values, and sensor position files.
 
-# Load data
-tr = pd.read_csv("training_data.csv")
-df = pd.read_csv("sensor_data.csv")
-pf = pd.read_csv("positions.csv")
+### Global Sensors Map
 
-# Train with custom parameters
-model = train_model(
-    tr=tr,
-    df=df,
-    pf=pf,
-    epochs=30,
-    seq_len=48,
-    batch_size=64,
-    lr=5e-4,
-    model_path="custom_model.pth",
-    device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-)
-```
+![Global Sensors Map](images/screenshots/global_sensors_map.png)
 
-#### Inference
+Interactive visualization of sensor network locations with real-time status indicators.
 
-```python
-from models.simulation_original import run_simulation_with_live_imputation
-import torch
+### Training Interface
 
-# Load trained model
-model = torch.load("generated/model_TSGuard.pth")
-scaler, inv_scaler = load_scaler_from_json("generated/model_TSGuard_scaler.json")
+![Training](images/screenshots/Training.png)
 
-# Run simulation
-run_simulation_with_live_imputation(
-    sim_df=tr,
-    missing_df=df,
-    positions=pf,
-    model=model,
-    scaler=scaler,
-    inv_scaler=inv_scaler,
-    device=torch.device("cpu"),
-    window_hours=24
-)
-```
+Model training interface showing progress and configuration options.
 
-### Custom Constraints
+### Spatial Constraints Configuration
 
-Define spatial and temporal constraints programmatically:
+![Spatial Constraints](images/screenshots/spatial_constraints.png)
 
-```python
-# Spatial constraint: sensors within 5 km should differ by at most 10 units
-spatial_constraint = {
-    "type": "Spatial",
-    "distance in km": 5.0,
-    "diff": 10.0
-}
+Configure spatial constraints including distance thresholds and maximum sensor value differences.
 
-# Temporal constraint: January values should be less than 50
-temporal_constraint = {
-    "type": "Temporal",
-    "month": "January",
-    "option": "Less than",
-    "temp_threshold": 50.0
-}
-```
+### Temporal Constraints Configuration
 
-### Integration with External Systems
+![Temporal Constraints](images/screenshots/temporal_constraints.png)
 
-TSGuard can be integrated into larger monitoring systems:
+Set up temporal constraints with month-specific thresholds and seasonal patterns.
 
-1. **Data Pipeline Integration**: Use `helpers.py` functions to load data from databases or APIs
-2. **Model Serving**: Export trained models for deployment in production environments
-3. **Alert System**: Connect constraint violation alerts to notification systems
-4. **Batch Processing**: Use training functions for offline processing of historical data
+### Dynamic Captors Management
+
+![Dynamic Captors](images/screenshots/dynamic_captors.png)
+
+Add new sensors at runtime and manage sensor network configuration dynamically.
+
+### Models Comparison
+
+![Models Comparison](images/screenshots/models_comparison.png)
+
+Compare TSGuard imputation results with baseline methods (PriSTI, ORBIT) side-by-side.
+
+### TSGuard Assistant
+
+![TSGuard Assistant](images/screenshots/tsguard_assistant.png)
+
+AI-powered assistant providing system guidance and troubleshooting support.
+
+---
+
+## Results
+
+TSGuard has been evaluated on PM2.5 air quality monitoring datasets with promising results. The system demonstrates:
+
+- **High Imputation Accuracy**: Effective reconstruction of missing values using spatial and temporal patterns
+- **Real-Time Performance**: Streaming inference capabilities suitable for online deployment
+- **Robust Constraint Validation**: Automatic detection of out-of-range values and constraint violations
+- **Comparative Performance**: Competitive results compared to baseline methods (PriSTI, ORBIT)
+
+### Key Performance Metrics
+
+- **Per-sensor imputation accuracy**: Tracked via MSE, MAE, and RMSE metrics
+- **Global statistics**: Overall missing value percentage and imputation coverage
+- **Constraint violations**: Count and severity of out-of-range predictions
+- **Temporal consistency**: Smoothness and continuity of imputed sequences
+
+Detailed results and metrics are available in the `outputs/` directory after running simulations, including:
+- `outputs/imputed.csv`: Complete imputed time series
+- `outputs/metrics_by_sensor.csv`: Per-sensor performance metrics
+- `outputs/audit.csv`: System events and decision logs
+- `outputs/confidence.csv`: Imputation confidence scores
 
 ---
 
