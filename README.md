@@ -158,7 +158,7 @@ During real-time inference, TSGuard follows a multi-stage process:
 
 1. **📥 Clone the repository**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/kaaaziz/ts_guard.git
    cd ts_guard
    ```
 

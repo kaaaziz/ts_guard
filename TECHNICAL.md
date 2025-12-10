@@ -53,7 +53,7 @@ The adjacency matrix **A** captures spatial relationships between sensors:
 
    **A_{ij} = exp(-d_{ij}² / σ²)**
 
-   where σ² = 0.1 × Var(d_{ij}) is a variance parameter based on the standard deviation of all pairwise distances.
+   where σ² = sigma_sq_ratio × Var(d_{ij}) = sigma_sq_ratio × std(d_{ij})², with default sigma_sq_ratio = 0.1. The variance is computed from the standard deviation of all pairwise distances.
 
 3. **Self-Loops**: Add self-connections:
 
@@ -69,7 +69,7 @@ The adjacency matrix **A** captures spatial relationships between sensors:
 
 For each time step t, the spatial aggregation is performed as:
 
-**h_i^(spatial) = ReLU(Σ_j Â_{ij} · x_{t,j} · W)**
+**h_i^(spatial) = ReLU(Σ_j x_{t,j} · Â_{ji} · W)**
 
 where:
 - **h_i^(spatial)** ∈ ℝ^d is the spatial embedding for sensor i
@@ -78,7 +78,9 @@ where:
 
 In matrix form:
 
-**H^(spatial) = ReLU(Â · X_t · W)**
+**H^(spatial) = ReLU(X_t · Â^T · W)**
+
+Note: The implementation uses `X_t @ Â^T @ W` which is equivalent to aggregating over neighbors via the transposed adjacency matrix, followed by linear projection.
 
 ### Long Short-Term Memory (LSTM)
 
@@ -93,7 +95,7 @@ The LSTM processes this sequence:
 where:
 - **h_t^(temporal)** ∈ ℝ^h is the hidden state at time t
 - **c_t** is the cell state
-- **h** is the LSTM hidden dimension (default: 128)
+- **h** is the LSTM hidden dimension (default: 64)
 
 ### Output Projection
 
@@ -144,9 +146,9 @@ class GCNLSTMImputer(nn.Module):
         self,
         adj,                    # (N, N) normalized adjacency matrix
         num_nodes,              # Number of sensors
-        in_features=1,          # Input feature dimension
+        in_features,            # Input feature dimension (typically num_nodes)
         gcn_hidden=64,         # GCN hidden dimension
-        lstm_hidden=128,       # LSTM hidden dimension
+        lstm_hidden=64,        # LSTM hidden dimension
         out_features=None,     # Output dimension (default: num_nodes)
         gcn_dropout=0.1,       # GCN dropout rate
         lstm_dropout=0.1,      # LSTM dropout rate
@@ -167,7 +169,7 @@ class GCNLSTMImputer(nn.Module):
 |-----------|---------|-------------|
 | `seq_len` | 36 | Sequence length for temporal window |
 | `gcn_hidden` | 64 | GCN hidden dimension |
-| `lstm_hidden` | 128 | LSTM hidden dimension |
+| `lstm_hidden` | 64 | LSTM hidden dimension |
 | `batch_size` | 32 | Training batch size |
 | `learning_rate` | 1e-3 | Adam optimizer learning rate |
 | `epochs` | 20 | Number of training epochs |
