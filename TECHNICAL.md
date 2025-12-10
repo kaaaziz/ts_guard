@@ -26,48 +26,38 @@ TSGuard’s core is a hybrid neural architecture that models spatial and tempora
 
 ## Spatial Layer (GNN)
 
-- Uses a **single-layer** Graph Convolutional Network (GCN) to propagate information across neighboring sensors at each time step.  
+- Uses a 2-layer Graph Convolutional Network (GCN) to propagate information across neighboring sensors.  
 - Captures correlations between nearby nodes, improving missing value estimation using spatial context.  
-- For each time step $t$, the spatial aggregation is performed as:
+- Each GCN layer computes:
 
 $$
-H_t^{\text{spatial}} = \text{ReLU}\left(X_t \cdot \tilde{A}^T \cdot W\right)
+H^{(l+1)} = \text{ReLU}\left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} H^{(l)} W^{(l)} \right)
 $$
 
-where:
-- $X_t \in \mathbb{R}^{N}$ is the sensor values at time $t$
-- $\tilde{A} \in \mathbb{R}^{N \times N}$ is the normalized adjacency matrix (pre-computed as $\tilde{A} = D^{-1/2} A D^{-1/2}$ where $A$ includes self-loops)
-- $W \in \mathbb{R}^{N \times d}$ is the learnable weight matrix
-- $d$ is the GCN hidden dimension (default: 64)
-- Dropout (0.1) is applied for regularization
+where $\tilde{A}$ includes self-loops, $H^{(l)}$ is the node feature matrix, $W^{(l)}$ are learnable weights, and ReLU is the activation function.
 
 ## Temporal Layer (LSTM)
 
-- The sequence of spatial embeddings $[H_1^{\text{spatial}}, H_2^{\text{spatial}}, ..., H_T^{\text{spatial}}]$ is processed with a **single-layer** LSTM to capture temporal dependencies.  
+- Each sensor’s time series is processed with a 2-layer LSTM to capture temporal dependencies.  
 - LSTM hidden states encode historical patterns, trends, and periodicities.  
 - Computation at each timestep:
 
 $$
-h_t^{\text{temporal}}, c_t = \text{LSTM}\left(H_t^{\text{spatial}}, h_{t-1}^{\text{temporal}}, c_{t-1}\right)
+h_t, c_t = \text{LSTM}(x_t, h_{t-1}, c_{t-1})
 $$
 
-where:
-- $h_t^{\text{temporal}} \in \mathbb{R}^h$ is the hidden state at time $t$
-- $c_t$ is the cell state
-- $h$ is the LSTM hidden dimension (default: 64)
-- Dropout (0.1) is applied for regularization
+- Dropout (0.2) is applied for regularization.
 
-## Output Projection
+## Spatial–Temporal Fusion
 
-- The final prediction for each sensor is obtained via linear projection:
+- The outputs of the GNN and LSTM are combined through a learnable fusion weight $\alpha$:
 
 $$
-\hat{y}_{t,i} = W_{\text{out}} \cdot h_t^{\text{temporal}}
+z_t = \alpha \cdot h_t^{\text{GNN}} + (1-\alpha) \cdot h_t^{\text{LSTM}}
 $$
 
-where $W_{\text{out}} \in \mathbb{R}^{h \times N}$ maps the temporal hidden state to per-sensor predictions.
-
-**Architecture Flow**: The model processes data sequentially: for each time step, GCN extracts spatial features, then LSTM processes the temporal sequence of these spatial embeddings, and finally a linear layer produces per-sensor predictions.
+- Allows adaptive balance of spatial and temporal contributions.  
+- $\alpha$ is trained jointly with GNN and LSTM parameters.
 
 # Constraint Engine
 
@@ -75,41 +65,19 @@ Ensures predicted values are physically plausible and consistent with domain kno
 
 ## Constraint Types
 
-- **Spatial constraints**: For sensors $i$ and $j$ within distance threshold $d_{\max}$ (km), the difference must satisfy:
-
-  $$
-  |x_i - x_j| \leq \delta_{\max}
-  $$
-
-  where $\delta_{\max}$ is the maximum allowed difference between neighboring sensors.
-
-- **Temporal constraints**: Month-specific thresholds that depend on the time of year:
-
-  $$
-  x_t \gtrless \tau_m \quad \text{(depending on month } m \text{ and constraint type)}
-  $$
-
-  where $\tau_m$ is the threshold value for month $m$, and the constraint can be "greater than" or "less than" based on domain knowledge.
+- **Temporal consistency:** $|x_t - x_{t-1}| \leq \Delta_{\max}$  
+- **Spatial consistency:** $|x_t - \bar{x}_{N(t)}| \leq \delta_{\max}$  
+- **Physical limits:** $x_{\min} \leq x_t \leq x_{\max}$
 
 ## Fallback Estimation
 
-- When an imputed value violates constraints, TSGuard applies a weighted spatial fallback using neighbor values:
+- Corrects ML predictions violating constraints:
 
 $$
-\hat{x}_t^{\text{fallback}} = \sum_{j \in \mathcal{N}(i)} w_j \cdot x_{j,t}
+\hat{x}_t = \alpha \cdot \hat{x}_t^{\text{ML}} + \beta \cdot \hat{x}_t^{\text{spatial}} + \gamma \cdot x_{t-1}, \quad \text{with } \alpha + \beta + \gamma = 1
 $$
 
-where:
-- $\mathcal{N}(i)$ is the set of valid neighbors of sensor $i$ (within distance threshold, not violating constraints)
-- The weight $w_j$ for neighbor $j$ is computed as:
-
-$$
-w_j = \frac{(1/d_{ij}) \cdot c_{ij}^2}{\sum_{k \in \mathcal{N}(i)} (1/d_{ik}) \cdot c_{ik}^2}
-$$
-
-where $d_{ij}$ is the distance between sensors $i$ and $j$, and $c_{ij}$ is the historical correlation coefficient (with a minimum floor of 0.3).
-
-- This ensures physically consistent outputs by replacing constraint-violating imputations with spatially-coherent estimates from neighboring sensors.
+- Guarantees physically consistent outputs even under extreme missing data conditions.
 
 ## Model Architecture Details
 
