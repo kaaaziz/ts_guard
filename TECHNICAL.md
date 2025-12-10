@@ -9,118 +9,14 @@ This document provides comprehensive technical details for TSGuard, including ma
 
 ## Table of Contents
 
-1. [Hybrid GNN–LSTM Model](#Hybrid-GNN–LSTM-Model)
-2. [Constraint Engine](#Constraint-Engine)
-3. [Model Architecture Details](#model-architecture-details)
-4. [Advanced Usage](#advanced-usage)
-5. [Detailed Input Requirements](#detailed-input-requirements)
-6. [API Reference](#api-reference)
-7. [Implementation Details](#implementation-details)
-8. [Performance Optimization](#performance-optimization)
+1. [Model Architecture Details](#model-architecture-details)
+2. [Advanced Usage](#advanced-usage)
+3. [Detailed Input Requirements](#detailed-input-requirements)
+4. [API Reference](#api-reference)
+5. [Implementation Details](#implementation-details)
+6. [Performance Optimization](#performance-optimization)
 
 ---
-
-# Hybrid GNN–LSTM Model
-
-TSGuard’s core is a hybrid neural architecture that models spatial and temporal dependencies jointly.
-
-## Spatial Layer (GNN)
-
-- Uses a 2-layer Graph Convolutional Network (GCN) to propagate information across neighboring sensors.  
-- Captures correlations between nearby nodes, improving missing value estimation using spatial context.  
-- Each GCN layer computes:
-
-$$
-H^{(l+1)} = \text{ReLU}\left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} H^{(l)} W^{(l)} \right)
-$$
-
-where:
-- $\tilde{A} = A + I$ is the adjacency matrix with self-loops ($A$ is the original adjacency, $I$ is the identity matrix)
-- $\tilde{D}$ is the degree matrix of $\tilde{A}$ with $\tilde{D}_{ii} = \sum_j \tilde{A}_{ij}$
-- $H^{(l)} \in \mathbb{R}^{N \times d^{(l)}}$ is the node feature matrix at layer $l$
-- $W^{(l)} \in \mathbb{R}^{d^{(l)} \times d^{(l+1)}}$ are learnable weight parameters
-- $\text{ReLU}$ is the rectified linear unit activation function
-- The normalization $\tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2}$ ensures stable gradient flow
-
-## Temporal Layer (LSTM)
-
-- Each sensor's time series is processed with a 2-layer LSTM to capture temporal dependencies.  
-- LSTM hidden states encode historical patterns, trends, and periodicities.  
-- Computation at each timestep:
-
-$$
-h_t, c_t = \text{LSTM}(x_t, h_{t-1}, c_{t-1})
-$$
-
-where:
-- $x_t \in \mathbb{R}^d$ is the input at time step $t$ (spatial embedding from GCN layer)
-- $h_{t-1} \in \mathbb{R}^h$ is the hidden state from the previous time step
-- $c_{t-1} \in \mathbb{R}^h$ is the cell state from the previous time step
-- $h_t \in \mathbb{R}^h$ is the output hidden state at time $t$
-- $c_t \in \mathbb{R}^h$ is the updated cell state at time $t$
-- $h$ is the LSTM hidden dimension (default: 64)
-- Dropout (0.2) is applied for regularization
-
-## Spatial–Temporal Fusion
-
-- The outputs of the GNN and LSTM are combined through a learnable fusion weight $\alpha$:
-
-$$
-z_t = \alpha \cdot h_t^{\text{GNN}} + (1-\alpha) \cdot h_t^{\text{LSTM}}
-$$
-
-where:
-- $h_t^{\text{GNN}} \in \mathbb{R}^d$ is the spatial embedding from the GCN layer at time $t$
-- $h_t^{\text{LSTM}} \in \mathbb{R}^h$ is the temporal hidden state from the LSTM layer at time $t$
-- $\alpha \in [0, 1]$ is a learnable fusion weight parameter
-- $z_t \in \mathbb{R}^d$ (or $\mathbb{R}^h$ depending on dimension matching) is the fused representation
-- The fusion allows adaptive balance of spatial and temporal contributions
-- $\alpha$ is trained jointly with GNN and LSTM parameters via backpropagation
-
-# Constraint Engine
-
-Ensures predicted values are physically plausible and consistent with domain knowledge.
-
-## Constraint Types
-
-- **Spatial constraints**: For sensors $i$ and $j$ within distance threshold $d_{\max}$ (km), the difference must satisfy:
-
-  $$
-  |x_i - x_j| \leq \delta_{\max}
-  $$
-
-  where $\delta_{\max}$ is the maximum allowed difference between neighboring sensors, and $d_{\max}$ is the spatial distance threshold (e.g., 2 km).
-
-- **Temporal constraints**: Month-specific thresholds that depend on the time of year:
-
-  $$
-  x_t \gtrless \tau_m \quad \text{(depending on month } m \text{ and constraint type)}
-  $$
-
-  where $\tau_m$ is the threshold value for month $m$, and the constraint can be "greater than" ($x_t > \tau_m$) or "less than" ($x_t < \tau_m$) based on domain knowledge.
-
-## Fallback Estimation
-
-- When an imputed value violates constraints, TSGuard applies a weighted spatial fallback using neighbor values:
-
-$$
-\hat{x}_{i,t}^{\text{fallback}} = \sum_{j \in \mathcal{N}(i)} w_j \cdot x_{j,t}
-$$
-
-where:
-- $\mathcal{N}(i)$ is the set of valid neighbors of sensor $i$ (within distance threshold, not violating constraints)
-- The weight $w_j$ for neighbor $j$ is computed as:
-
-$$
-w_j = \frac{(1/d_{ij}) \cdot c_{ij}^2}{\sum_{k \in \mathcal{N}(i)} (1/d_{ik}) \cdot c_{ik}^2}
-$$
-
-where:
-- $d_{ij}$ is the haversine distance between sensors $i$ and $j$
-- $c_{ij}$ is the historical correlation coefficient between sensors $i$ and $j$ (with a minimum floor of $0.3^2 = 0.09$)
-- Weights are normalized so that $\sum_{j \in \mathcal{N}(i)} w_j = 1$
-
-- This ensures physically consistent outputs by replacing constraint-violating imputations with spatially-coherent estimates from neighboring sensors.
 
 ## Model Architecture Details
 
@@ -823,17 +719,4 @@ TSGuard handles three scenarios during inference:
 - **Batch Size**: Larger batches improve GPU utilization but require more memory
   - Recommended: 16-64 depending on GPU memory
 
----
-
-## Additional Resources
-
-- **Code Documentation**: Inline docstrings in source files
-- **Example Notebooks**: See `examples/` directory (if available)
-- **Issue Tracker**: GitHub issues for bug reports and feature requests
-- **Community**: Contact contributors for questions and collaboration
-
----
-
-**Last Updated**: January 2025  
-**Maintained by**: TSGuard Development Team
 
