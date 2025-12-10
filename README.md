@@ -550,8 +550,6 @@ TSGuard saves comprehensive artifacts for reproducibility:
 
 - University of Luxembourg (SnT)
 - Hassiba Ben Bouali University, Chlef
-- Université de Paris
-- École Nationale Supérieure d'Informatique (ESI)
 
 ### Citation
 
