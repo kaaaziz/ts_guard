@@ -23,15 +23,16 @@ The framework is particularly well-suited for applications involving particulate
 3. [Methodology](#methodology)
 4. [Installation](#installation)
 5. [Quick Start Guide](#quick-start-guide)
-6. [System Architecture](#system-architecture)
-7. [Data Formats](#data-formats)
-8. [Model Details](#model-details)
-9. [Screenshots](#screenshots)
-10. [Evaluation and Comparisons](#evaluation-and-comparisons)
-11. [Customization points](#customization-points)
-12. [Reproducibility](#reproducibility)
-13. [Limitations and Considerations](#limitations-and-considerations)
-14. [Contributors and Citation](#contributors-and-citation)
+6. [Demo Video](#Demo-Video)
+7. [System Architecture](#system-architecture)
+8. [Data Formats](#data-formats)
+9. [Model Details](#model-details)
+10. [Screenshots](#screenshots)
+11. [Evaluation and Comparisons](#evaluation-and-comparisons)
+12. [Customization points](#customization-points)
+13. [Reproducibility](#reproducibility)
+14. [Limitations and Considerations](#limitations-and-considerations)
+15. [Contributors and Citation](#contributors-and-citation)
 
 ---
 
@@ -44,32 +45,32 @@ The framework is particularly well-suited for applications involving particulate
 - **⚡ Real-Time Streaming Inference**: Designed for online deployment scenarios where data arrives continuously and imputation must occur in real-time with minimal latency.
 
 - **🖥️ Interactive Web Interface**: Comprehensive Streamlit-based dashboard providing:
-  - 📤 Data upload and validation
-  - 📊 Real-time visualization of sensor networks and imputation results
-  - 🎛️ Model training and simulation controls
-  - 🔬 Comparative analysis with baseline methods (PriSTI, ORBIT)
-  - ⚙️ Configurable constraint systems (spatial and temporal)
-  - 🤖 AI-powered assistant for system guidance
+  -  Data upload and validation
+  -  Real-time visualization of sensor networks and imputation results
+  -  Model training and simulation controls
+  -  Comparative analysis with baseline methods (PriSTI, ORBIT)
+  -  Configurable constraint systems (spatial and temporal)
+  -  AI-powered assistant for system guidance
 
 - **🛡️ Domain-Aware Constraints**: Flexible constraint system supporting:
-  - **📍 Spatial constraints**: Distance-based neighbor relationships and maximum sensor value differences
-  - **⏰ Temporal constraints**: Month-specific thresholds and seasonal patterns
-  - **✅ Range validation**: Automatic detection of out-of-range imputed values
+  - **Spatial constraints**: Distance-based neighbor relationships and maximum sensor value differences
+  - **Temporal constraints**: Month-specific thresholds and seasonal patterns
+  - **Range validation**: Automatic detection of out-of-range imputed values
 
 - **📡 Dynamic Sensor Management**: Runtime addition of new sensors and hold-out mode for controlled ablation studies.
 
 - **📈 Comprehensive Monitoring**: Real-time dashboards showing:
-  - 📉 Missing value statistics and trends
-  - 🎯 Imputation confidence metrics
-  - ⚠️ Constraint violation alerts
-  - 📊 Per-sensor performance analysis
+  -  Missing value statistics and trends
+  -  Imputation confidence metrics
+  -  Constraint violation alerts
+  -  Per-sensor performance analysis
 
 ### Technical Highlights
 
-- **🏗️ Modular Architecture**: Clean separation between data processing, model training, inference, and visualization components
-- **🔧 Robust Data Handling**: Automatic normalization of diverse timestamp formats, sensor ID canonicalization, and position data validation
-- **🔬 Baseline Integration**: Built-in support for comparing against PriSTI (diffusion-based imputation) and ORBIT methods
-- **📦 Reproducible Experiments**: Comprehensive artifact management including model checkpoints, scaler parameters, adjacency matrices, and configuration snapshots
+- **Modular Architecture**: Clean separation between data processing, model training, inference, and visualization components
+- **Robust Data Handling**: Automatic normalization of diverse timestamp formats, sensor ID canonicalization, and position data validation
+- **Baseline Integration**: Built-in support for comparing against PriSTI (diffusion-based imputation) and ORBIT methods
+- **Reproducible Experiments**: Comprehensive artifact management including model checkpoints, scaler parameters, adjacency matrices, and configuration snapshots
 
 ---
 
@@ -223,11 +224,11 @@ During real-time inference, TSGuard follows a multi-stage process:
      - Alternative: Two-column format (longitude, latitude) with sensor IDs as index
 
 3. **⚙️ Configure Settings** (expandable panel):
-   - **📍 Constraints**: Define spatial (distance thresholds) and temporal (month-specific) constraints
-   - **📊 Thresholds**: Set delay thresholds (σ) for missing value detection
-   - **🕸️ Graph Options**: Configure graph size and adjacency parameters
-   - **⏱️ Simulation**: Adjust simulation speed and replay parameters
-   - **📡 Captors**: Add dynamic sensors or force sensors offline for testing
+   - **Constraints**: Define spatial (distance thresholds) and temporal (month-specific) constraints
+   - **Thresholds**: Set delay thresholds (σ) for missing value detection
+   - **Graph Options**: Configure graph size and adjacency parameters
+   - **Simulation**: Adjust simulation speed and replay parameters
+   - **Captors**: Add dynamic sensors or force sensors offline for testing
 
 4. **🧠 Train the Model**:
    - Click **"🧠 Start TSGuard training"**
@@ -237,9 +238,9 @@ During real-time inference, TSGuard follows a multi-stage process:
 5. **▶️ Run Simulation**:
    - Click **"▶️ Start TSGuard Simulation"**
    - Real-time visualization will show:
-     - 🗺️ Interactive map with sensor locations and status
-     - 📊 Missing value gauge (system health indicator)
-     - 📈 Time series charts with imputed values highlighted
+     - Interactive map with sensor locations and status
+     - Missing value gauge (system health indicator)
+     - Time series charts with imputed values highlighted
    - Access **Settings → Models Comparison** to compare TSGuard with baseline methods
 
 ### Example Workflow
@@ -266,6 +267,20 @@ model = train_model(
 
 > **For advanced usage examples, custom configurations, and API reference**, see [TECHNICAL.md](TECHNICAL.md#advanced-usage).
 
+---
+
+## 🎬 Demo Video
+
+A full demonstration of TSGuard’s real-time monitoring, imputation, and interactive features is available here:
+
+[Watch the Demo Video](https://drive.google.com/file/d/1ZNjlYOPJsEwFdzibX0PuElxRjD1wvtOT/view?usp=sharing)
+
+The video illustrates:
+
+- Real-time sensor monitoring on the AQI-36 network.
+- Visualization of missing and imputed values (temporal and spatial views).
+- Fallback estimation when constraints are violated.
+- Interaction with the built-in chatbot for explanations and diagnostics.
 ---
 
 ## System Architecture
@@ -346,27 +361,27 @@ TSGuard requires three input files:
 
 Default configuration (configurable via `utils/config.py`):
 
-- **📏 Sequence Length**: 36 time steps (configurable via `seq_len` parameter)
-- **🔗 GCN Hidden Dimension**: 64 (configurable)
-- **🔄 LSTM Hidden Dimension**: 128 (configurable)
-- **📈 Learning Rate**: 1e-3 (Adam optimizer)
-- **📦 Batch Size**: 32
-- **🎲 Dropout**: 0.1 (both GCN and LSTM)
-- **🔄 Training Epochs**: 20 (default, configurable)
-- **🕸️ Adjacency Kernel**: Gaussian with σ² = 0.1 × std(distance)²
+- **Sequence Length**: 36 time steps (configurable via `seq_len` parameter)
+- **GCN Hidden Dimension**: 64 (configurable)
+- **LSTM Hidden Dimension**: 128 (configurable)
+- **Learning Rate**: 1e-3 (Adam optimizer)
+- **Batch Size**: 32
+- **Dropout**: 0.1 (both GCN and LSTM)
+- **Training Epochs**: 20 (default, configurable)
+- **Adjacency Kernel**: Gaussian with σ² = 0.1 × std(distance)²
 
 ### Training Process
 
-1. **✂️ Data Splitting**: Temporal split by months (train: Jan, Feb, Apr, May, Jul, Aug, Oct; validation: Mar, Jun, Sep, Dec)
-2. **📊 Normalization**: Min-max scaling per sensor based on training data statistics
-3. **🪟 Window Generation**: Sliding windows of length `seq_len` with next-step prediction targets
-4. **📉 Loss Computation**: Masked MSE focusing only on originally missing positions
-5. **💾 Checkpointing**: Saves model weights, scaler parameters, and adjacency matrix
+1. **Data Splitting**: Temporal split by months (train: Jan, Feb, Apr, May, Jul, Aug, Oct; validation: Mar, Jun, Sep, Dec)
+2. **Normalization**: Min-max scaling per sensor based on training data statistics
+3. **Window Generation**: Sliding windows of length `seq_len` with next-step prediction targets
+4. **Loss Computation**: Masked MSE focusing only on originally missing positions
+5. **Checkpointing**: Saves model weights, scaler parameters, and adjacency matrix
 
 ### Inference Modes
 
-- **📦 Batch Inference**: Process entire time series at once (faster, requires full data)
-- **⚡ Streaming Inference**: Process one timestamp at a time (real-time, lower memory)
+- **Batch Inference**: Process entire time series at once (faster, requires full data)
+- **Streaming Inference**: Process one timestamp at a time (real-time, lower memory)
 
 ---
 
@@ -443,12 +458,12 @@ TSGuard significantly outperforms the baseline methods in real-time imputation a
 
 TSGuard includes integration with two baseline methods:
 
-1. **🔬 PriSTI** (Prior-informed Spatio-Temporal Imputation):
+1. **PriSTI** (Prior-informed Spatio-Temporal Imputation):
    - Diffusion-based generative model
    - Requires separate model artifacts in `PRISTI/save/`
    - Accessible via Settings → Models Comparison
 
-2. **📊 ORBIT**:
+2. **ORBIT**:
    - Archived results in `orbits_results/`
    - Used for retrospective comparison studies
    - 
@@ -470,16 +485,16 @@ TSGuard includes integration with two baseline methods:
 
 TSGuard saves comprehensive artifacts for reproducibility:
 
-- **💾 Model Checkpoints**: `generated/model_TSGuard.pth` (PyTorch state dict)
-- **📊 Scaler Parameters**: `generated/model_TSGuard_scaler.json` (min/max values per sensor)
-- **🕸️ Adjacency Matrix**: `generated/model_TSGuard_adjacency.json` (spatial relationships)
-- **⚙️ Configuration**: `generated/model_TSGuard_imputer_config.json` (hyperparameters)
+- **Model Checkpoints**: `generated/model_TSGuard.pth` (PyTorch state dict)
+- **Scaler Parameters**: `generated/model_TSGuard_scaler.json` (min/max values per sensor)
+- **Adjacency Matrix**: `generated/model_TSGuard_adjacency.json` (spatial relationships)
+- **Configuration**: `generated/model_TSGuard_imputer_config.json` (hyperparameters)
 
 ### Experiment Tracking
 
-- **📝 Imputation Logs**: `tsguard_imputations.csv` (timestamped imputation records)
-- **📋 Audit Trail**: `outputs/audit.csv` (system events and decisions)
-- **📈 Metrics**: `outputs/metrics_by_sensor.csv` (per-sensor performance)
+- **Imputation Logs**: `tsguard_imputations.csv` (timestamped imputation records)
+- **Audit Trail**: `outputs/audit.csv` (system events and decisions)
+- **Metrics**: `outputs/metrics_by_sensor.csv` (per-sensor performance)
 
 ---
 
