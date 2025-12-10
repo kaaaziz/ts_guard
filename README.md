@@ -56,6 +56,13 @@ TSGuard processes time-series satellite (e.g., PM2.5) data by:
 
 This section provides a visual overview of the main functionalities of TSGuard. It is recommended to place the images inside an `images/screenshots/` directory.
 
+### 🧪 Training & Data Upload Interface
+
+![Data Upload](images/screenshots/data_upload.png)
+![Data Upload](images/screenshots/Training.png)
+
+---
+
 ### 🌍 Global Sensors Map & Real-Time Alerts
 
 ![Global Sensors Map – Dataset 1](images/screenshots/global_sensors_map.png)
@@ -90,12 +97,6 @@ This section provides a visual overview of the main functionalities of TSGuard. 
 ### 🤖 TSGuard Assistant – Delay & Missing Data Analysis
 
 ![TSGuard Assistant](images/screenshots/tsguard_assistant.png)
-
----
-
-### 🧪 Training & Data Upload Interface
-
-![Data Upload](images/screenshots/data_upload.png)
 
 ---
 
@@ -185,11 +186,36 @@ git checkout -b feature/my-feature
 
 ## 📄 License
 
+Apache License 2.0
+
 Copyright (c) 2025 TSGuard Contributors
 
 ---
 
 ## 📧 Contact
 
-Maintainer: Imane HCN,
-repository: [TSGuard](https://github.com/kaaaziz/ts\_guard)
+### 👩‍🔬 Imane Hocine
+
+* **Email:** [imane.hocine@uni.lu](mailto:imane.hocine@uni.lu)
+* **Affiliation:** SnT, University of Luxembourg, Esch-sur-Alzette, Luxembourg
+
+---
+
+### 👩‍🔬 Asma Abboura
+
+* **Email:** [a.abboura@univ-chlef.dz](mailto:a.abboura@univ-chlef.dz)
+* **Affiliation:** Hassiba Ben Bouali University, Chlef, Algeria
+
+---
+
+### 👨‍🔬 Abhijith Senthilkumar
+
+* **Email:** [abhijith.senthilkumar@uni.lu](mailto:abhijith.senthilkumar@uni.lu)
+* **Affiliation:** SnT, University of Luxembourg, Esch-sur-Alzette, Luxembourg
+
+---
+
+### 👨‍🔬 Abdelaziz Kella
+
+* **Email:** [kaa.kella.abdelaziz@gmail.com](mailto:kaa.kella.abdelaziz@gmail.com)
+* **Affiliation:** Hassiba Benbouali University, Chlef, Algeria
