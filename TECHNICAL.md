@@ -31,10 +31,10 @@ TSGuard’s core is a hybrid neural architecture that models spatial and tempora
 - Each GCN layer computes:
 
 $$
-H^{(l+1)} = \text{ReLU}\left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} H^{(l)} W^{(l)} \right)
+H^{(l+1)} = \mathrm{ReLU}\left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} H^{(l)} W^{(l)} \right)
 $$
 
-where $\tilde{A}$ includes self-loops, $H^{(l)}$ is the node feature matrix, $W^{(l)}$ are learnable weights, and ReLU is the activation function.
+Where $\tilde{A}$ includes self-loops, $H^{(l)}$ is the node feature matrix, $W^{(l)}$ are learnable weights, and ReLU is the activation function.
 
 ## Temporal Layer (LSTM)
 
@@ -43,7 +43,7 @@ where $\tilde{A}$ includes self-loops, $H^{(l)}$ is the node feature matrix, $W^
 - Computation at each timestep:
 
 $$
-h_t, c_t = \text{LSTM}(x_t, h_{t-1}, c_{t-1})
+h_t, c_t = \mathrm{LSTM}(x_t, h_{t-1}, c_{t-1})
 $$
 
 - Dropout (0.2) is applied for regularization.
@@ -53,7 +53,7 @@ $$
 - The outputs of the GNN and LSTM are combined through a learnable fusion weight $\alpha$:
 
 $$
-z_t = \alpha \cdot h_t^{\text{GNN}} + (1-\alpha) \cdot h_t^{\text{LSTM}}
+z_t = \alpha \cdot h_t^{\mathrm{GNN}} + (1-\alpha) \cdot h_t^{\mathrm{LSTM}}
 $$
 
 - Allows adaptive balance of spatial and temporal contributions.  
@@ -74,7 +74,7 @@ Ensures predicted values are physically plausible and consistent with domain kno
 - Corrects ML predictions violating constraints:
 
 $$
-\hat{x}_t = \alpha \cdot \hat{x}_t^{\text{ML}} + \beta \cdot \hat{x}_t^{\text{spatial}} + \gamma \cdot x_{t-1}, \quad \text{with } \alpha + \beta + \gamma = 1
+\hat{x}_t = \alpha \cdot \hat{x}_t^{\mathrm{ML}} + \beta \cdot \hat{x}_t^{\mathrm{spatial}} + \gamma \cdot x_{t-1}, \quad \text{with } \alpha + \beta + \gamma = 1
 $$
 
 - Guarantees physically consistent outputs even under extreme missing data conditions.
