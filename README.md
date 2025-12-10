@@ -100,10 +100,10 @@ This section provides a visual overview of the main functionalities of TSGuard. 
 
 ---
 
-## 📂 Project Structure (updated_tsguard)
+## 📂 Project Structure
 
 ```text
-TSGuard/
+ts_guard/
 ├── components/
 │   ├── buttons.py
 │   ├── chatbot.py
