@@ -567,13 +567,6 @@ If you use TSGuard in your research, please cite:
   url={https://github.com/your-repo/tsguard}
 }
 ```
-
-### Related Publications
-
-When using baseline methods, please also cite:
-- **PriSTI**: [Citation for PriSTI paper]
-- **ORBIT**: [Citation for ORBIT paper]
-
 ---
 
 ## Contact and Support
