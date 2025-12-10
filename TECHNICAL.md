@@ -101,13 +101,26 @@ Ensures predicted values are physically plausible and consistent with domain kno
 
 ## Fallback Estimation
 
-- Corrects ML predictions violating constraints:
+- When an imputed value violates constraints, TSGuard applies a weighted spatial fallback using neighbor values:
 
 $$
-\hat{x}_t = \alpha \cdot \hat{x}_t^{\mathrm{ML}} + \beta \cdot \hat{x}_t^{\mathrm{spatial}} + \gamma \cdot x_{t-1}, \quad \text{with } \alpha + \beta + \gamma = 1
+\hat{x}_{i,t}^{\text{fallback}} = \sum_{j \in \mathcal{N}(i)} w_j \cdot x_{j,t}
 $$
 
-- Guarantees physically consistent outputs even under extreme missing data conditions.
+where:
+- $\mathcal{N}(i)$ is the set of valid neighbors of sensor $i$ (within distance threshold, not violating constraints)
+- The weight $w_j$ for neighbor $j$ is computed as:
+
+$$
+w_j = \frac{(1/d_{ij}) \cdot c_{ij}^2}{\sum_{k \in \mathcal{N}(i)} (1/d_{ik}) \cdot c_{ik}^2}
+$$
+
+where:
+- $d_{ij}$ is the haversine distance between sensors $i$ and $j$
+- $c_{ij}$ is the historical correlation coefficient between sensors $i$ and $j$ (with a minimum floor of $0.3^2 = 0.09$)
+- Weights are normalized so that $\sum_{j \in \mathcal{N}(i)} w_j = 1$
+
+- This ensures physically consistent outputs by replacing constraint-violating imputations with spatially-coherent estimates from neighboring sensors.
 
 ## Model Architecture Details
 
