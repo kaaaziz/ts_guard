@@ -554,5 +554,5 @@ The development of TSGuard was supported by research collaborations between the 
 
 ---
 
-**Last Updated**: January 2025  
+**Last Updated**: December 2025  
 **Maintained by**: TSGuard Development Team
