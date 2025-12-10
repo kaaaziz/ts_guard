@@ -27,12 +27,11 @@ The framework is particularly well-suited for applications involving particulate
 7. [Data Formats](#data-formats)
 8. [Model Details](#model-details)
 9. [Screenshots](#screenshots)
-10. [Results](#results)
-11. [Evaluation and Comparisons](#evaluation-and-comparisons)
-12. [Configuration and Customization](#configuration-and-customization)
-13. [Reproducibility](#reproducibility)
-14. [Limitations and Considerations](#limitations-and-considerations)
-15. [Contributors and Citation](#contributors-and-citation)
+10. [Evaluation and Comparisons](#evaluation-and-comparisons)
+11. [Customization points](#customization-points)
+12. [Reproducibility](#reproducibility)
+13. [Limitations and Considerations](#limitations-and-considerations)
+14. [Contributors and Citation](#contributors-and-citation)
 
 ---
 
@@ -423,32 +422,6 @@ AI-powered assistant providing system guidance and troubleshooting support.
 
 ---
 
-## Results
-
-TSGuard has been evaluated on PM2.5 air quality monitoring datasets with promising results. The system demonstrates:
-
-- **🎯 High Imputation Accuracy**: Effective reconstruction of missing values using spatial and temporal patterns
-- **⚡ Real-Time Performance**: Streaming inference capabilities suitable for online deployment
-- **🛡️ Robust Constraint Validation**: Automatic detection of out-of-range values and constraint violations
-- **📊 Comparative Performance**: Competitive results compared to baseline methods (PriSTI, ORBIT)
-
-### Key Performance Metrics
-
-- **📈 Per-sensor imputation accuracy**: Tracked via MSE, MAE, and RMSE metrics
-- **🌐 Global statistics**: Overall missing value percentage and imputation coverage
-- **⚠️ Constraint violations**: Count and severity of out-of-range predictions
-- **📉 Temporal consistency**: Smoothness and continuity of imputed sequences
-
-### Output Files
-
-Detailed results and metrics are available in the `outputs/` directory after running simulations, including:
-- 📄 `outputs/imputed.csv`: Complete imputed time series
-- 📊 `outputs/metrics_by_sensor.csv`: Per-sensor performance metrics
-- 📝 `outputs/audit.csv`: System events and decision logs
-- 🎯 `outputs/confidence.csv`: Imputation confidence scores
-
----
-
 ## Evaluation and Comparisons
 
 ### Performance Results
@@ -478,26 +451,10 @@ TSGuard includes integration with two baseline methods:
 2. **📊 ORBIT**:
    - Archived results in `orbits_results/`
    - Used for retrospective comparison studies
-
-### Comparison Metrics
-
-The system tracks comprehensive performance metrics:
-
-- **📈 Per-sensor imputation accuracy**: MSE, MAE, RMSE
-- **🌐 Global statistics**: Overall missing value percentage, imputation coverage
-- **⚠️ Constraint violations**: Count and severity of out-of-range predictions
-- **📉 Temporal consistency**: Smoothness of imputed sequences
-
-### Visualization Tools
-
-- **🗺️ Interactive Maps**: Real-time sensor status and imputation results (PyDeck)
-- **📊 Time Series Charts**: Plotly-based visualization with imputed values highlighted
-- **📋 Comparison Tables**: Side-by-side model outputs per sensor
-- **⚡ System Health Gauge**: Visual indicator of missing value percentage
-
+   - 
 ---
 
-### Customization Points
+## Customization Points
 
 1. **Model Architecture**: Modify `GCNLSTMImputer` class in `models/simulation_original.py`
 2. **Adjacency Computation**: Adjust `create_adjacency_matrix()` for different spatial kernels
@@ -523,13 +480,6 @@ TSGuard saves comprehensive artifacts for reproducibility:
 - **📝 Imputation Logs**: `tsguard_imputations.csv` (timestamped imputation records)
 - **📋 Audit Trail**: `outputs/audit.csv` (system events and decisions)
 - **📈 Metrics**: `outputs/metrics_by_sensor.csv` (per-sensor performance)
-
-### Version Control Recommendations
-
-- ✅ Commit configuration files (`utils/config.py`)
-- 📝 Track model architectures (code changes)
-- 📚 Document data preprocessing steps
-- 🎲 Save random seeds if using stochastic components
 
 ---
 
