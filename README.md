@@ -191,5 +191,5 @@ Copyright (c) 2025 TSGuard Contributors
 
 ## 📧 Contact
 
-Maintainer: Imane HCN
-Repository: [TSGuard](https://github.com/kaaaziz/ts\_guard)
+Maintainer: Imane HCN,
+repository: [TSGuard](https://github.com/kaaaziz/ts\_guard)
