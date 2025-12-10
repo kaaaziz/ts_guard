@@ -54,54 +54,48 @@ TSGuard processes time-series satellite (e.g., PM2.5) data by:
 
 ## 📊 Screenshots (UI Overview)
 
-> This section provides a visual overview of the main functionalities of TSGuard.
-> It is recommended to place the images inside an `images/screenshots/` directory.
+This section provides a visual overview of the main functionalities of TSGuard. It is recommended to place the images inside an `images/screenshots/` directory.
 
 ### 🌍 Global Sensors Map & Real-Time Alerts
 
-![Global Sensors Map](images/screenshots/Capture_d’écran_2025-12-06_19-00-06.png)
+![Global Sensors Map – Dataset 1](images/screenshots/global_sensors_map.png)
+![Global Sensors Map – Dataset 2](images/screenshots/global_sensors_map2.png)
 
 ---
 
 ### ⚙️ Spatial Constraints Configuration
 
-![Temporal Constraints](images/screenshots/Capture d’écran 2025-12-10 à 17.00.46.png)
+![Spatial Constraints](images/screenshots/spatial_constraints.png)
 
 ---
 
-### ⚙️ Spatial Constraints Configuration
+### ⏳ Temporal Constraints Configuration
 
-![Spatial Constraints](images/screenshots/Capture_d’écran_2025-12-03_20-01-43.png)
+![Temporal Constraints](images/screenshots/temporal_constraints.png)
 
 ---
 
 ### 📡 Dynamic Captors & Hold-Out Mode
 
-![Dynamic Captors](images/screenshots/Capture_d’écran_2025-12-03_20-03-42.png)
+![Dynamic Captors](images/screenshots/dynamic_captors.png)
 
 ---
 
-### 📊 Models Comparison (TSGuard vs PriSTI vs ORBIT)
+### 📊 Models Comparison (TSGuard vs PriSTI vs ORBITS)
 
-![Models Comparison](images/screenshots/Capture_d’écran_2025-12-03_20-05-51.png)
+![Models Comparison](images/screenshots/models_comparison.png)
 
 ---
 
 ### 🤖 TSGuard Assistant – Delay & Missing Data Analysis
 
-![TSGuard Assistant](images/screenshots/Capture_d’écran_2025-12-03_21-31-39.png)
-
----
-
-### 🗺️ High-Density Sensor Deployment View
-
-![Sensor Deployment](images/screenshots/Capture_d’écran_2025-12-07_11-29-12.png)
+![TSGuard Assistant](images/screenshots/tsguard_assistant.png)
 
 ---
 
 ### 🧪 Training & Data Upload Interface
 
-![Data Upload](images/screenshots/Capture_d’écran_2025-12-03_21-35-11.png)
+![Data Upload](images/screenshots/data_upload.png)
 
 ---
 
@@ -173,11 +167,6 @@ Then open [http://localhost:8501](http://localhost:8501).
 ✅ **Best overall accuracy:** TSGuard
 ✅ **Fastest inference:** ORBITS
 
----------|--------|---------|
-| TSGuard | 20.16 | 31.91 |
-| PriSTI  | 75.23 | 111.67 |
-| ORBIT   | 75.23 | 111.67 |
-
 TSGuard significantly outperforms the baseline methods in real-time imputation accuracy.
 
 ---
@@ -204,4 +193,5 @@ Copyright (c) 2025 TSGuard Contributors
 
 ## 📧 Contact
 
-
+Maintainer: Imane HCN
+Repository: [https://github.com/ImaneHCN/TSGuard](https://github.com/ImaneHCN/TSGuard)
