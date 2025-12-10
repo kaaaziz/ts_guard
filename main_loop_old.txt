@@ -1,0 +1,430 @@
+# ---------- main loop (resume from pointer) ----------
+    use_model = model is not None
+    if use_model:
+        model.eval()
+
+    SNAP10 = 10
+    ptr = int(SS["sim_ptr"])
+    total_steps = len(common_index)
+
+
+    # # with st.expander("🔔 Alerts (dismissible)", expanded=True):
+    # render_alert_center(12)
+
+    while ptr < total_steps:
+        ts = pd.Timestamp(common_index[ptr])
+        SS["sim_iter"] += 1
+        iter_key = SS["sim_iter"]
+        baseline_row_ts = SS.orig_missing_baseline.reindex(index=[ts], columns=sensor_cols).iloc[0]
+
+        # time label
+        SS["ph_time"].markdown(f"<div style='font-weight:600'>Current Time: {ts}</div>", unsafe_allow_html=True)
+
+        # history window strictly before ts
+        hist_end = ts - pd.Timedelta(hours=1)
+        if hist_end in missing_df.index:
+            hist_idx = missing_df.loc[:hist_end].index[-window_hours:]
+        else:
+            hist_idx = missing_df.index[missing_df.index < ts][-window_hours:]
+        hist_win = missing_df.loc[hist_idx, sensor_cols] if len(hist_idx) > 0 else pd.DataFrame()
+
+        # --- TSGuard imputation (alignée baseline) ---
+                # --- TSGuard hybrid imputation (temporal + spatial + climatology) ---
+        tsg_start = time.perf_counter()
+        baseline_row_ts = SS.orig_missing_baseline.reindex(index=[ts], columns=sensor_cols).iloc[0]
+        present_row_ts  = SS.baseline_present.reindex(index=[ts], columns=sensor_cols).iloc[0]
+
+        # Temporal predictions for all sensors at ts (single forward pass)
+        temporal_vector = None
+        if not hist_win.empty and use_model:
+            try:
+                temporal_vector = predict_all_sensors(
+                    historical_window=np.asarray(hist_win.values, dtype=np.float32)
+                )
+            except Exception:
+                temporal_vector = None
+
+        svals, sstatus = [], []
+
+        for col in sensor_cols:
+            col_idx = col_to_idx[col]
+            is_missing_now = bool(baseline_row_ts.get(col, False))
+
+            if is_missing_now:
+                # ------- TEMPORAL ESTIMATE T_s(t) -------
+                T_val = float("nan")
+                conf_T = 0.0
+
+                if temporal_vector is not None:
+                    T_val = float(temporal_vector[col_idx])
+
+                    # Confidence for temporal: fraction of valid history + stability
+                    vals_hist_col = hist_win[col].to_numpy(dtype=float) if not hist_win.empty else np.array([])
+                    vals_hist_col = vals_hist_col[np.isfinite(vals_hist_col)]
+                    if vals_hist_col.size >= 2:
+                        mu = float(np.mean(vals_hist_col))
+                        sigma = float(np.std(vals_hist_col))
+                        cv = sigma / (abs(mu) + 1e-3)
+                        stability = 1.0 / (1.0 + cv)
+                        frac_valid = min(1.0, vals_hist_col.size / max(1, window_hours))
+                        conf_T = frac_valid * stability
+                    elif vals_hist_col.size == 1:
+                        conf_T = 0.3  # a single point is not great, but not zero either
+                    else:
+                        conf_T = 0.0
+
+                # ------- SPATIAL ESTIMATE S_s(t) -------
+                neighbors = neighbors_by_idx[col_idx]
+                S_val = float("nan")
+                conf_S = 0.0
+
+                if len(neighbors) > 0:
+                    vals = []
+                    weights = []
+                    for j in neighbors:
+                        nbr_col = sensor_cols[j]
+                        # only use neighbors that were originally present at time t
+                        if not bool(present_row_ts.get(nbr_col, False)):
+                            continue
+                        try:
+                            v = float(missing_df.at[ts, nbr_col])
+                        except Exception:
+                            v = float("nan")
+                        if not np.isfinite(v):
+                            continue
+
+                        d = dist_matrix[col_idx, j]
+                        inv_d = 1.0 if d <= 0 else 1.0 / d
+                        corr_boost = float(corr_boost_matrix[col_idx, j])
+                        w = inv_d * corr_boost
+                        vals.append(v)
+                        weights.append(w)
+
+                    vals = np.asarray(vals, dtype=float)
+                    weights = np.asarray(weights, dtype=float)
+
+                    if vals.size > 0:
+                        # MAD-based trimming around median
+                        if trim_frac > 0.0 and vals.size > 2:
+                            median = float(np.median(vals))
+                            abs_dev = np.abs(vals - median)
+                            order = np.argsort(abs_dev)
+                            keep_n = max(1, int(round((1.0 - 2.0 * trim_frac) * vals.size)))
+                            keep_idx = order[:keep_n]
+                            vals_trimmed = vals[keep_idx]
+                            weights_trimmed = weights[keep_idx]
+                        else:
+                            vals_trimmed = vals
+                            weights_trimmed = weights
+
+                        if np.all(weights_trimmed == 0):
+                            weights_trimmed = np.ones_like(weights_trimmed)
+                        w_norm = weights_trimmed / np.sum(weights_trimmed)
+                        S_val = float(np.sum(w_norm * vals_trimmed))
+
+                        # Confidence for spatial: neighbor coverage + low spread
+                        if vals_trimmed.size > 1:
+                            median = float(np.median(vals_trimmed))
+                            mad = float(np.median(np.abs(vals_trimmed - median)))
+                            spread = mad / (abs(median) + 1e-3)
+                            coverage = min(1.0, vals_trimmed.size / max(1.0, k_neighbors))
+                            conf_S = coverage * (1.0 / (1.0 + spread))
+                        else:
+                            conf_S = 0.3  # single neighbor, low but non-zero confidence
+
+                # ------- Climatology -------
+                clim_val = get_climatology(ts, col_idx)
+                conf_clim = 0.0
+                if np.isfinite(clim_val):
+                    conf_clim = 0.2  # simple proxy
+
+                # ------- Blend T and S (and climatology as backup) -------
+                use_T = np.isfinite(T_val) and conf_T >= MIN_CONF
+                use_S = np.isfinite(S_val) and conf_S >= MIN_CONF
+
+                final_val = float("nan")
+
+                if use_T and use_S:
+                    denom = conf_T + conf_S
+                    alpha = conf_T / (denom + 1e-6)
+                    final_val = alpha * T_val + (1.0 - alpha) * S_val
+                elif use_T:
+                    final_val = T_val
+                elif use_S:
+                    final_val = S_val
+                else:
+                    # fall back to climatology if available
+                    if np.isfinite(clim_val) and conf_clim > 0.0:
+                        if conf_T > 0.0 and np.isfinite(T_val):
+                            alpha = conf_T / (conf_T + clim_beta + 1e-6)
+                            final_val = alpha * T_val + (1.0 - alpha) * clim_val
+                        else:
+                            final_val = clim_val
+                    else:
+                        # last-resort: last observed in history
+                        if not hist_win.empty:
+                            last = pd.to_numeric(hist_win[col].dropna(), errors="coerce")
+                            final_val = float(last.iloc[-1]) if len(last) else float("nan")
+                        else:
+                            final_val = float("nan")
+
+                # Domain clipping if requested
+                if np.isfinite(final_val):
+                    if domain_clip_min is not None:
+                        final_val = max(domain_clip_min, final_val)
+                    if domain_clip_max is not None:
+                        final_val = min(domain_clip_max, final_val)
+
+                # write + flags
+                try:
+                    missing_df.at[ts, col] = final_val if pd.notna(final_val) else np.nan
+                except Exception:
+                    pass
+                svals.append(final_val)
+                sstatus.append(False)  # imputed
+                SS.imputed_mask.at[ts, col] = pd.notna(final_val)
+
+            else:
+                # originally present, pass through
+                v = missing_df.at[ts, col] if (ts in missing_df.index and col in missing_df.columns) else np.nan
+                svals.append(v)
+                sstatus.append(True)   # original
+                SS.imputed_mask.at[ts, col] = False
+
+        SS["impute_time_tsg"][ts] = time.perf_counter() - tsg_start
+
+
+        # Sécurité : parité des tailles
+        if len(svals)   < len(sensor_cols): svals   += [np.nan] * (len(sensor_cols) - len(svals))
+        if len(sstatus) < len(sensor_cols): sstatus += [False]  * (len(sensor_cols) - len(sstatus))
+
+        # ---- Dicts capteur -> valeur/état ----
+        vals_by_col = dict(zip(sensor_cols, svals))
+        real_by_col = dict(zip(sensor_cols, sstatus))
+        imputed_row = SS.imputed_mask.reindex(index=[ts], columns=sensor_cols, fill_value=False).iloc[0]
+
+        # --- Update missing streak (Scénario 1) ---
+        if "_missing_streak_hours" not in SS:
+            SS["_missing_streak_hours"] = {c: 0.0 for c in sensor_cols}
+
+        for c in sensor_cols:
+            originally_missing = bool(baseline_row_ts.get(c, False))
+            val_now = vals_by_col.get(c, np.nan)
+            no_value_now = (val_now is None) or (isinstance(val_now, float) and np.isnan(val_now))
+            # On incrémente uniquement quand il manquait à l’origine ET qu’on n’a toujours pas de valeur à afficher
+            if originally_missing and no_value_now:
+                SS["_missing_streak_hours"][c] = SS["_missing_streak_hours"].get(c, 0.0) + 1.0  # +1h par tick
+            else:
+                SS["_missing_streak_hours"][c] = 0.0
+
+        # ---- Vérification des contraintes & alertes (appelle TA fonction) ----
+        verify_constraints_and_alerts_for_timestamp(
+            ts=ts,
+            latlng_df=latlng[["sensor_id", "data_col", "latitude", "longitude"]],
+            values_by_col=vals_by_col,
+            imputed_mask_row=imputed_row,
+            baseline_row=baseline_row_ts,
+            #passing the streak
+            missing_streak_hours=SS["_missing_streak_hours"],
+        )
+        # à la fin de CHAQUE itération (après la vérif des contraintes et les push_alert)
+        render_grouped_alerts()
+
+        # ---- Buffers de rendu (inchangé) ----
+        '''row = {"datetime": ts}
+        for i, c in enumerate(sensor_cols):
+            row[c] = svals[i]
+        SS.sliding_window_df.loc[len(SS.sliding_window_df)] = row
+        SS.global_df.loc[len(SS.global_df)] = row
+        if len(SS.sliding_window_df) > 36:
+            SS.sliding_window_df = SS.sliding_window_df.tail(36)'''
+
+        # ---- Buffers de rendu (fixed sliding window) ----
+        row = {"datetime": ts}
+        for i, c in enumerate(sensor_cols):
+            row[c] = svals[i]
+
+        # Append as a new row (ignore old indices so length really increases)
+        SS.sliding_window_df = pd.concat(
+            [SS.sliding_window_df, pd.DataFrame([row])],
+            ignore_index=True,
+        )
+
+        SS.global_df = pd.concat(
+            [SS.global_df, pd.DataFrame([row])],
+            ignore_index=True,
+        )
+
+        # Keep only the last 36 rows for the sliding window
+        if len(SS.sliding_window_df) > 36:
+            SS.sliding_window_df = SS.sliding_window_df.tail(36).reset_index(drop=True)
+
+
+        # --- Map update & store base for next Fit ---
+        # --- juste avant la mise à jour de la carte ---
+        # (garde les mêmes noms de variables que ton code)
+        if len(svals) != len(sensor_cols) or len(sstatus) != len(sensor_cols):
+            if not st.session_state.get("_warned_len_mismatch", False):
+                st.warning(
+                    f"[Guard] Mismatch tailles — sensors={len(sensor_cols)}, svals={len(svals)}, sstatus={len(sstatus)}. "
+                    "On complète seulement ce tick."
+                )
+                st.session_state["_warned_len_mismatch"] = True
+
+        # mapping sûr (pas d'IndexError); les capteurs sans valeur recevront NaN/False et la map affichera 'NA'
+        vals_by_col = dict(zip(sensor_cols, svals))
+        real_by_col = dict(zip(sensor_cols, sstatus))
+        tick_df = latlng.copy()
+        tick_df["value"]  = tick_df["data_col"].map(vals_by_col).fillna("NA")
+        tick_df["status"] = tick_df["data_col"].map(lambda c: "Real" if real_by_col.get(c, False) else "Predicted")
+        tick_df["timestamp"] = ts.strftime("%Y-%m-%d %H:%M")
+        tick_df["bg_color"] = [GREEN if s == "Real" else RED for s in tick_df["status"]]
+        tick_df["bg_radius"] = 10
+        tick_df["icon"] = [ICON_SPEC] * len(tick_df)
+        tick_df["icon_size"] = 1.0
+        SS.deck_obj.layers = [make_bg_layer(tick_df), make_icon_layer(tick_df)]
+        SS["_fit_base_df"] = tick_df.copy()
+        SS["ph_map"].pydeck_chart(SS.deck_obj, use_container_width=True)
+
+        # --- Gauge & counts (CUMULATIVE MISSED from the beginning to now) ---
+        baseline_mask_to_now = SS.orig_missing_baseline.loc[:ts, sensor_cols]
+        cumulative_missed = int(baseline_mask_to_now.values.sum())  # total # of originally-missing cells up to ts
+        total_cells_to_now = baseline_mask_to_now.size
+        pct_missed_to_now = (cumulative_missed / total_cells_to_now * 100.0) if total_cells_to_now else 0.0
+
+        # Active sensors NOW (same as before, just for info)
+        row_imp = SS.imputed_mask.reindex(index=[ts], columns=sensor_cols, fill_value=False).iloc[0]
+        imputed_now = int(row_imp.sum())
+        sensors_total = max(1, len(sensor_cols))
+        real_now = sensors_total - imputed_now
+
+        # Per-timestamp (NOW) counts that match the map colors:
+        missed_now = int(baseline_row_ts.sum())
+        active_now = len(sensor_cols) - missed_now
+
+        SS["ph_counts_active"].markdown(f"Active sensors now: **{active_now}**")
+        SS["ph_counts_missing"].markdown(f"Delayed sensors now: **{missed_now}**")
+
+        # Gauge shows MISSED DATA (%) cumulatively
+        '''gauge_fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=pct_missed_to_now,
+            title={"text": "Missed Data (%)"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"color": "red" if pct_missed_to_now >= DEFAULT_VALUES["gauge_red_max"] else "green"},
+                "steps": [
+                    {"range": [DEFAULT_VALUES["gauge_green_min"], DEFAULT_VALUES["gauge_green_max"]],
+                     "color": "lightgreen"},
+                    {"range": [DEFAULT_VALUES["gauge_yellow_min"], DEFAULT_VALUES["gauge_yellow_max"]],
+                     "color": "yellow"},
+                    {"range": [DEFAULT_VALUES["gauge_red_min"], DEFAULT_VALUES["gauge_red_max"]], "color": "red"},
+                ],
+            },
+        ))'''
+
+        # Use dynamic gauge thresholds if the user defined them; otherwise fall back to defaults
+        mv_thresh = SS.get("missing_value_thresholds")
+        if isinstance(mv_thresh, dict):
+            g_min, g_max = mv_thresh["Green"]
+            y_min, y_max = mv_thresh["Yellow"]
+            r_min, r_max = mv_thresh["Red"]
+        else:
+            g_min = DEFAULT_VALUES["gauge_green_min"]
+            g_max = DEFAULT_VALUES["gauge_green_max"]
+            y_min = DEFAULT_VALUES["gauge_yellow_min"]
+            y_max = DEFAULT_VALUES["gauge_yellow_max"]
+            r_min = DEFAULT_VALUES["gauge_red_min"]
+            r_max = DEFAULT_VALUES["gauge_red_max"]
+
+        # Choose bar color based on which zone pct_missed_to_now falls into
+        if pct_missed_to_now >= r_min:
+            bar_color = "red"
+        elif pct_missed_to_now >= y_min:
+            bar_color = "yellow"
+        else:
+            bar_color = "green"
+
+        gauge_fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=pct_missed_to_now,
+            title={"text": "Missed Data (%)"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"color": bar_color},
+                "steps": [
+                    {"range": [g_min, g_max], "color": "lightgreen"},
+                    {"range": [y_min, y_max], "color": "yellow"},
+                    {"range": [r_min, r_max], "color": "red"},
+                ],
+            },
+        ))
+
+
+        gauge_fig.update_layout(title="",margin=dict(l=10, r=10, t=30, b=10))
+        lightify(gauge_fig)
+        SS["ph_gauge"].plotly_chart(gauge_fig, use_container_width=True, key=f"{uid}_gauge_{iter_key}")
+
+        # --- Global TS (Matplotlib) ---
+        global_df_plot = SS.global_df.copy()
+        fig_global = make_mpl_timeseries_figure(
+            df=global_df_plot,
+            imputed_mask=SS.imputed_mask,
+            sensor_cols=sensor_cols,
+            sensor_color_map=sensor_color_map,
+            title="Global Sensors Time Series",
+            gap_hours=12,
+            show_legend=True,
+        )
+        SS["ph_global"].pyplot(fig_global, clear_figure=True)
+        plt.close(fig_global)
+
+        # --- Snapshot 10 (Matplotlib, last 10 timestamps, no legend) ---
+        snap10_df = SS.sliding_window_df.tail(SNAP10).copy()
+        fig_snap = make_mpl_timeseries_figure(
+            df=snap10_df,
+            imputed_mask=SS.imputed_mask,
+            sensor_cols=sensor_cols,
+            sensor_color_map=sensor_color_map,
+            title="Snapshot (last 10)",
+            gap_hours=6,
+            show_legend=False,
+        )
+        SS["ph_snap10"].pyplot(fig_snap, clear_figure=True)
+        plt.close(fig_snap)
+
+
+        # advance pointer
+        ptr += 1
+        SS["sim_ptr"] = ptr
+        #time.sleep(0)
+
+        # ------------------------------------------------------------------
+        # Configurable Simulation Time:
+        #   τ = sim_seconds_per_hour  (real seconds per simulated hour)
+        #   Δt_sim_hours = gap between this timestamp and the next one
+        #   sleep_seconds = τ * Δt_sim_hours
+        #
+        # If τ == 0 → no intentional delay (current behaviour).
+        # ------------------------------------------------------------------
+        sim_seconds_per_hour = float(
+            SS.get("sim_seconds_per_hour", default_scale)
+        )
+        sim_seconds_per_hour = max(0.0, sim_seconds_per_hour)
+
+        if sim_seconds_per_hour > 0.0 and ptr < total_steps:
+            next_ts = pd.Timestamp(common_index[ptr])
+            dt_hours = max(
+                0.0, (next_ts - ts).total_seconds() / 3600.0
+            )
+
+            # If the timestamps are identical or out-of-order, fall back to 1 hour,
+            # so the slider still has an effect.
+            if dt_hours <= 0.0:
+                dt_hours = 1.0
+
+            sleep_seconds = sim_seconds_per_hour * dt_hours
+            time.sleep(sleep_seconds)
+        else:
+            # τ == 0.0 or we are at the last step → run flat out
+            time.sleep(0)
