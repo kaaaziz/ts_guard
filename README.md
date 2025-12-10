@@ -4,7 +4,7 @@
 
 TSGuard is an advanced AI-driven framework for imputing missing time-series data in satellite observations. It leverages Graph Neural Networks (GNNs), streaming inference, and statistical methods to enhance the accuracy of satellite-based environmental monitoring, with a focus on PM2.5 data.
 
-The **`updated_tsguard`** branch introduces a refactored Streamlit interface (`main_app.py`), a modular UI component architecture (`components/`), and a clearer integration with the **PriSTI** baseline (`models/PRISTI` and `PRISTI/`). The imputation with **ORBIT** has been done offline and the results are saved under (`orbits_results`) which are then read into a dataframe inside (`simulation_original.py`).
+This project introduces a refactored Streamlit interface (`main_app.py`), a modular UI component architecture (`components/`), and a clearer integration with the **PriSTI** baseline (`models/PRISTI` and `PRISTI/`). The imputation with **ORBIT** has been done offline and the results are saved under (`orbits_results`) which are then read into a dataframe inside (`simulation_original.py`).
 
 ---
 
@@ -45,10 +45,10 @@ TSGuard processes time-series satellite (e.g., PM2.5) data by:
 
 4. **Visualizing and validating results** 📈
    The Streamlit app displays:
-
+   
    * Time-series plots (original vs imputed)
    * Spatial maps (sensor positions, constraints)
-   * Comparison dashboards vs PriSTI
+   * Comparison dashboards vs PriSTI vs ORBITS
 
 ---
 
