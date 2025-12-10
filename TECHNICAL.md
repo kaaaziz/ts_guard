@@ -19,122 +19,64 @@ This document provides comprehensive technical details for TSGuard, including ma
 
 ---
 
-## Mathematical Formulations
+# Hybrid GNN–LSTM Model
 
-### Problem Formulation
+TSGuard’s core is a hybrid neural architecture that models spatial and temporal dependencies jointly.
 
-Given a network of **N** sensors producing time series data **X_t ∈ ℝ^N** at discrete time steps **t**, where some entries may be missing (represented as NaN), TSGuard aims to reconstruct missing values.
+## Spatial Layer (GNN)
 
-Let:
-- **X_t** = [x_{t,1}, x_{t,2}, ..., x_{t,N}]^T ∈ ℝ^N denote the observations at time t
-- **M_t** = [m_{t,1}, m_{t,2}, ..., m_{t,N}]^T ∈ {0,1}^N denote the mask where m_{t,i} = 1 if x_{t,i} is missing, 0 otherwise
-- **Ŷ_t** = [ŷ_{t,1}, ŷ_{t,2}, ..., ŷ_{t,N}]^T ∈ ℝ^N denote the imputed values
+- Uses a 2-layer Graph Convolutional Network (GCN) to propagate information across neighboring sensors.  
+- Captures correlations between nearby nodes, improving missing value estimation using spatial context.  
+- Each GCN layer computes:
 
-The objective is to learn a function **f** such that:
+$$
+H^{(l+1)} = \mathrm{ReLU}\left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} H^{(l)} W^{(l)} \right)
+$$
 
-**Ŷ_t = f(X_{t-L:t-1}, M_t, A)**
+Where $\tilde{A}$ includes self-loops, $H^{(l)}$ is the node feature matrix, $W^{(l)}$ are learnable weights, and ReLU is the activation function.
 
-where:
-- **X_{t-L:t-1}** is the historical sequence of length L
-- **A** is the spatial adjacency matrix
-- **f** is the GCN-LSTM hybrid model
+## Temporal Layer (LSTM)
 
-### Spatial Adjacency Matrix Construction
+- Each sensor’s time series is processed with a 2-layer LSTM to capture temporal dependencies.  
+- LSTM hidden states encode historical patterns, trends, and periodicities.  
+- Computation at each timestep:
 
-The adjacency matrix **A** captures spatial relationships between sensors:
+$$
+h_t, c_t = \mathrm{LSTM}(x_t, h_{t-1}, c_{t-1})
+$$
 
-1. **Distance Computation**: For sensors i and j with coordinates (lat_i, lon_i) and (lat_j, lon_j), compute haversine distance:
+- Dropout (0.2) is applied for regularization.
 
-   **d_{ij} = 2R · arcsin(√(sin²(Δlat/2) + cos(lat_i) · cos(lat_j) · sin²(Δlon/2)))**
+## Spatial–Temporal Fusion
 
-   where R = 6371 km (Earth's radius).
+- The outputs of the GNN and LSTM are combined through a learnable fusion weight $\alpha$:
 
-2. **Gaussian Kernel**: Apply Gaussian kernel to distances:
+$$
+z_t = \alpha \cdot h_t^{\mathrm{GNN}} + (1-\alpha) \cdot h_t^{\mathrm{LSTM}}
+$$
 
-   **A_{ij} = exp(-d_{ij}² / σ²)**
+- Allows adaptive balance of spatial and temporal contributions.  
+- $\alpha$ is trained jointly with GNN and LSTM parameters.
 
-   where σ² = sigma_sq_ratio × Var(d_{ij}) = sigma_sq_ratio × std(d_{ij})², with default sigma_sq_ratio = 0.1. The variance is computed from the standard deviation of all pairwise distances.
+# Constraint Engine
 
-3. **Self-Loops**: Add self-connections:
+Ensures predicted values are physically plausible and consistent with domain knowledge.
 
-   **A_{ii} = 1.0** for all i
+## Constraint Types
 
-4. **Symmetric Normalization**: Apply symmetric normalization for stable graph operations:
+- **Temporal consistency:** $|x_t - x_{t-1}| \leq \Delta_{\max}$  
+- **Spatial consistency:** $|x_t - \bar{x}_{N(t)}| \leq \delta_{\max}$  
+- **Physical limits:** $x_{\min} \leq x_t \leq x_{\max}$
 
-   **Â = D^{-1/2} A D^{-1/2}**
+## Fallback Estimation
 
-   where **D** is the degree matrix with **D_{ii} = Σ_j A_{ij}**.
+- Corrects ML predictions violating constraints:
 
-### Graph Convolutional Network (GCN)
+$$
+\hat{x}_t = \alpha \cdot \hat{x}_t^{\mathrm{ML}} + \beta \cdot \hat{x}_t^{\mathrm{spatial}} + \gamma \cdot x_{t-1}, \quad \text{with } \alpha + \beta + \gamma = 1
+$$
 
-For each time step t, the spatial aggregation is performed as:
-
-**h_i^(spatial) = ReLU(Σ_j x_{t,j} · Â_{ji} · W)**
-
-where:
-- **h_i^(spatial)** ∈ ℝ^d is the spatial embedding for sensor i
-- **W** ∈ ℝ^{1×d} is the learnable weight matrix
-- **d** is the GCN hidden dimension (default: 64)
-
-In matrix form:
-
-**H^(spatial) = ReLU(X_t · Â^T · W)**
-
-Note: The implementation uses `X_t @ Â^T @ W` which is equivalent to aggregating over neighbors via the transposed adjacency matrix, followed by linear projection.
-
-### Long Short-Term Memory (LSTM)
-
-The temporal processing operates on the sequence of spatial embeddings:
-
-**H^(spatial) = [h_1^(spatial), h_2^(spatial), ..., h_T^(spatial)]** ∈ ℝ^{T×d}
-
-The LSTM processes this sequence:
-
-**h_t^(temporal), c_t = LSTM(h_t^(spatial), h_{t-1}^(temporal), c_{t-1})**
-
-where:
-- **h_t^(temporal)** ∈ ℝ^h is the hidden state at time t
-- **c_t** is the cell state
-- **h** is the LSTM hidden dimension (default: 64)
-
-### Output Projection
-
-The final prediction for each sensor is obtained via linear projection:
-
-**ŷ_{t,i} = W_out · h_t^(temporal)**
-
-where **W_out** ∈ ℝ^{h×N} maps the temporal hidden state to per-sensor predictions.
-
-### Training Objective
-
-The model is trained using a masked Mean Squared Error (MSE) loss:
-
-**L = (1/|M|) Σ_{(t,i) ∈ M} (ŷ_{t,i} - y_{t,i})²**
-
-where:
-- **M** = {(t,i) | m_{t,i} = 1} is the set of (time, sensor) pairs that were originally missing
-- **|M|** is the cardinality of M
-- **y_{t,i}** is the ground truth value
-- **ŷ_{t,i}** is the model prediction
-
-This ensures the model focuses learning on reconstructing missing values rather than memorizing observed data.
-
-### Loss Function Implementation
-
-```python
-def masked_loss(outputs, targets, mask):
-    """
-    outputs, targets, mask: shape (batch, seq_len, num_nodes)
-    """
-    loss = criterion(outputs, targets)  # MSE per element
-    masked_loss = loss * mask  # Apply mask
-    denom = torch.sum(mask)
-    if denom <= 0:
-        return torch.tensor(0.0, device=outputs.device)
-    return torch.sum(masked_loss) / denom
-```
-
----
+- Guarantees physically consistent outputs even under extreme missing data conditions.
 
 ## Model Architecture Details
 
