@@ -31,33 +31,51 @@ TSGuard’s core is a hybrid neural architecture that models spatial and tempora
 - Each GCN layer computes:
 
 $$
-H^{(l+1)} = \mathrm{ReLU}\left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} H^{(l)} W^{(l)} \right)
+H^{(l+1)} = \text{ReLU}\left( \tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2} H^{(l)} W^{(l)} \right)
 $$
 
-Where $\tilde{A}$ includes self-loops, $H^{(l)}$ is the node feature matrix, $W^{(l)}$ are learnable weights, and ReLU is the activation function.
+where:
+- $\tilde{A} = A + I$ is the adjacency matrix with self-loops ($A$ is the original adjacency, $I$ is the identity matrix)
+- $\tilde{D}$ is the degree matrix of $\tilde{A}$ with $\tilde{D}_{ii} = \sum_j \tilde{A}_{ij}$
+- $H^{(l)} \in \mathbb{R}^{N \times d^{(l)}}$ is the node feature matrix at layer $l$
+- $W^{(l)} \in \mathbb{R}^{d^{(l)} \times d^{(l+1)}}$ are learnable weight parameters
+- $\text{ReLU}$ is the rectified linear unit activation function
+- The normalization $\tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2}$ ensures stable gradient flow
 
 ## Temporal Layer (LSTM)
 
-- Each sensor’s time series is processed with a 2-layer LSTM to capture temporal dependencies.  
+- Each sensor's time series is processed with a 2-layer LSTM to capture temporal dependencies.  
 - LSTM hidden states encode historical patterns, trends, and periodicities.  
 - Computation at each timestep:
 
 $$
-h_t, c_t = \mathrm{LSTM}(x_t, h_{t-1}, c_{t-1})
+h_t, c_t = \text{LSTM}(x_t, h_{t-1}, c_{t-1})
 $$
 
-- Dropout (0.2) is applied for regularization.
+where:
+- $x_t \in \mathbb{R}^d$ is the input at time step $t$ (spatial embedding from GCN layer)
+- $h_{t-1} \in \mathbb{R}^h$ is the hidden state from the previous time step
+- $c_{t-1} \in \mathbb{R}^h$ is the cell state from the previous time step
+- $h_t \in \mathbb{R}^h$ is the output hidden state at time $t$
+- $c_t \in \mathbb{R}^h$ is the updated cell state at time $t$
+- $h$ is the LSTM hidden dimension (default: 64)
+- Dropout (0.2) is applied for regularization
 
 ## Spatial–Temporal Fusion
 
 - The outputs of the GNN and LSTM are combined through a learnable fusion weight $\alpha$:
 
 $$
-z_t = \alpha \cdot h_t^{\mathrm{GNN}} + (1-\alpha) \cdot h_t^{\mathrm{LSTM}}
+z_t = \alpha \cdot h_t^{\text{GNN}} + (1-\alpha) \cdot h_t^{\text{LSTM}}
 $$
 
-- Allows adaptive balance of spatial and temporal contributions.  
-- $\alpha$ is trained jointly with GNN and LSTM parameters.
+where:
+- $h_t^{\text{GNN}} \in \mathbb{R}^d$ is the spatial embedding from the GCN layer at time $t$
+- $h_t^{\text{LSTM}} \in \mathbb{R}^h$ is the temporal hidden state from the LSTM layer at time $t$
+- $\alpha \in [0, 1]$ is a learnable fusion weight parameter
+- $z_t \in \mathbb{R}^d$ (or $\mathbb{R}^h$ depending on dimension matching) is the fused representation
+- The fusion allows adaptive balance of spatial and temporal contributions
+- $\alpha$ is trained jointly with GNN and LSTM parameters via backpropagation
 
 # Constraint Engine
 
@@ -65,9 +83,21 @@ Ensures predicted values are physically plausible and consistent with domain kno
 
 ## Constraint Types
 
-- **Temporal consistency:** $|x_t - x_{t-1}| \leq \Delta_{\max}$  
-- **Spatial consistency:** $|x_t - \bar{x}_{N(t)}| \leq \delta_{\max}$  
-- **Physical limits:** $x_{\min} \leq x_t \leq x_{\max}$
+- **Spatial constraints**: For sensors $i$ and $j$ within distance threshold $d_{\max}$ (km), the difference must satisfy:
+
+  $$
+  |x_i - x_j| \leq \delta_{\max}
+  $$
+
+  where $\delta_{\max}$ is the maximum allowed difference between neighboring sensors, and $d_{\max}$ is the spatial distance threshold (e.g., 2 km).
+
+- **Temporal constraints**: Month-specific thresholds that depend on the time of year:
+
+  $$
+  x_t \gtrless \tau_m \quad \text{(depending on month } m \text{ and constraint type)}
+  $$
+
+  where $\tau_m$ is the threshold value for month $m$, and the constraint can be "greater than" ($x_t > \tau_m$) or "less than" ($x_t < \tau_m$) based on domain knowledge.
 
 ## Fallback Estimation
 
