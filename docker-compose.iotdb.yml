@@ -1,0 +1,14 @@
+services:
+  iotdb:
+    image: apache/iotdb:2.0.6-standalone
+    container_name: tsguard-iotdb
+    restart: unless-stopped
+    ports:
+      - "6667:6667"
+    volumes:
+      - iotdb_data:/iotdb/data
+      - iotdb_logs:/iotdb/logs
+
+volumes:
+  iotdb_data:
+  iotdb_logs:
