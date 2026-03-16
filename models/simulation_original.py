@@ -1696,6 +1696,77 @@ def toast_notify(level: str, text: str, dedup_key: str|None = None):
     st.toast(f"{icon} {text}", icon=None)  # icon dans le texte pour garder les couleurs Streamlit
 
 
+#======== Final canonical output persistence to IoTDB (with source_kind and constraint flags) ========
+def write_canonical_outputs_to_iotdb(
+    ts: pd.Timestamp,
+    sensor_cols: list[str],
+    dynamic_sensor_cols: list[str],
+    vals_by_col: dict,
+    real_by_col: dict,
+    original_imputed_values: dict,
+    violating_imputed: dict,
+    violating_real: dict,
+    iotdb_writer=None,
+    current_run_id: str | None = None,
+):
+    """
+    Persist final canonical outputs for the current tick to IoTDB.
+
+    Policy:
+    - real values -> source_kind='real'
+    - normal hybrid output -> source_kind='imputed'
+    - fallback after constraint violation -> source_kind='fallback'
+    - dynamic captors use rule-based spatial interpolation -> source_kind='fallback'
+    - NaN values are skipped
+    """
+    if iotdb_writer is None:
+        return
+
+    all_cols = list(sensor_cols) + list(dynamic_sensor_cols)
+
+    for col in all_cols:
+        value = vals_by_col.get(col, np.nan)
+        if value is None:
+            continue
+        try:
+            value = float(value)
+        except Exception:
+            continue
+        if not np.isfinite(value):
+            continue
+
+        if bool(real_by_col.get(col, False)):
+            source_kind = "real"
+            strategy = "pass_through"
+            constraint_flag = col in violating_real
+        else:
+            constraint_flag = col in violating_imputed
+
+            if col in dynamic_sensor_cols:
+                source_kind = "fallback"
+                strategy = "dynamic_spatial_interpolation"
+            elif col in original_imputed_values and constraint_flag:
+                source_kind = "fallback"
+                violated = "+".join(sorted(violating_imputed.get(col, set()))) or "constraint"
+                strategy = f"spatial_fallback_after_{violated}"
+            elif col in original_imputed_values:
+                source_kind = "imputed"
+                strategy = "tsguard_hybrid"
+            else:
+                source_kind = "fallback"
+                strategy = "rule_based"
+
+        if current_run_id:
+            iotdb_writer.write_point(
+                timestamp=ts,
+                run_id=current_run_id,
+                sensor_id=col,
+                value=value,
+                source_kind=source_kind,
+                constraint_flag=constraint_flag,
+                strategy=strategy,
+            )
+
 def run_simulation_with_live_imputation(
     sim_df: pd.DataFrame,
     missing_df: pd.DataFrame,
@@ -1715,6 +1786,8 @@ def run_simulation_with_live_imputation(
     clim_beta: float = 0.3,
     domain_clip_min=None,
     domain_clip_max=None,
+    iotdb_writer=None, #IoTDB writer for final output persistence 
+    current_run_id: str|None = None, #Current run ID for IoTDB persistence
 ):
 
     SS = st.session_state
@@ -3062,6 +3135,20 @@ def run_simulation_with_live_imputation(
     flush_imputation_log_if_needed(
         path="tsguard_imputations.csv",
         chunk_size=100,  # adapte selon ce que tu veux
+    )
+
+    # ---- Canonical IoTDB write (final accepted outputs only) ----
+    write_canonical_outputs_to_iotdb(
+        ts=ts,
+        sensor_cols=sensor_cols,
+        dynamic_sensor_cols=dynamic_sensor_cols,
+        vals_by_col=vals_by_col,
+        real_by_col=real_by_col,
+        original_imputed_values=original_imputed_values,
+        violating_imputed=violating_imputed,
+        violating_real=violating_real,
+        iotdb_writer=iotdb_writer,
+        current_run_id=current_run_id,
     )
 
     # ---- Buffers de rendu (fixed sliding window) ----
