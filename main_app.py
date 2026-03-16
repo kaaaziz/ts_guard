@@ -31,6 +31,9 @@ from models.simulation_original import (
     train_model,
 )
 
+# --- IoTDB integration -------------------------------------------------------
+from integrations.iotdb import get_iotdb_settings, make_run_id, IoTDBCanonicalWriter
+
 # Plotly default theme
 pio.templates.default = "plotly_white"
 
@@ -400,6 +403,16 @@ def load_scaler_from_json(scaler_json_path: str):
     def inv_scaler(x): return x * denom + min_val
     return scaler, inv_scaler
 
+#iotb cached writer factory
+@st.cache_resource(show_spinner=False)
+def get_iotdb_writer():
+    settings = get_iotdb_settings()
+    if not settings.enabled:
+        return None
+
+    writer = IoTDBCanonicalWriter(settings)
+    writer.connect()
+    return writer
 
 
 # -----------------------------------------------------------------------------
@@ -457,6 +470,24 @@ def main():
     # Make the list of captors available to the Settings panel
     st.session_state["sensor_list"] = [str(s) for s in sensor_list]
 
+    # IoTDB bootstrap (env/config only)
+    iotdb_writer = get_iotdb_writer()
+    current_run_id = None
+
+    if iotdb_writer is not None and st.session_state.get("running", False):
+        try:
+            current_run_id = st.session_state.get("current_run_id")
+            if not current_run_id:
+                iotdb_settings = get_iotdb_settings()
+                current_run_id = make_run_id(iotdb_settings.dataset_node)
+                st.session_state["current_run_id"] = current_run_id
+
+            st.session_state["last_run_id"] = current_run_id
+            iotdb_writer.bootstrap(sensor_list, run_id=current_run_id)
+        except Exception as exc:
+            st.error(f"IoTDB bootstrap failed: {exc}")
+            return
+
 
     # Clean ground truth
     gref = tr.copy()
@@ -511,6 +542,10 @@ def main():
             "to inspect model outputs."
         )
         print("SIM_CALL", id(st.session_state), st.session_state.get("sim_iter"), flush=True)
+
+        if current_run_id:
+            st.info(f"Active IoTDB run ID: {current_run_id}")
+
         run_simulation_with_live_imputation(
             sim_df=tr,
             missing_df=df,
@@ -523,6 +558,8 @@ def main():
             sliding_chart_placeholder=sliding_ph,
             gauge_placeholder=gauge_ph,
             window_hours=24,
+            iotdb_writer=iotdb_writer, #pass the writer to the simulation for live imputation writing
+            current_run_id=current_run_id,
         )
 
     render_sidebar_logos()
