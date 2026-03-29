@@ -4,7 +4,7 @@ import components.chatbot as chatbot
 
 import pandas as pd
 import numpy as np
-
+import plotly.graph_objects as go
 # ----------------------------
 # Setting Management
 # ----------------------------
@@ -425,8 +425,8 @@ def add_captor_panel():
 # ----------------------------
 def add_models_comparison_panel():
     """
-    Live per-captor model comparison (TSGuard vs PriSTI, etc.).
-    Reads a snapshot produced by run_simulation_with_live_imputation.
+    Live per-captor model comparison over time.
+    Reads the comparison history produced by run_simulation_with_live_imputation.
     """
     SS = st.session_state
     st.markdown("### 📊 Models Comparison")
@@ -435,7 +435,6 @@ def add_models_comparison_panel():
     pristi_err = SS.get("pristi_last_error")
     if pristi_err:
         st.warning(f"PriSTI internal error: {pristi_err}")
-    # -------------------------------------------------------
 
     # 1) Which models are available?
     available_raw = SS.get("available_models", {"TSGuard"})
@@ -457,7 +456,7 @@ def add_models_comparison_panel():
         "Select which models to display:",
         options=available,
         default=default_valid,
-        help="TSGuard is always shown; PriSTI appears only if its artifacts are available.",
+        help="TSGuard is always shown; PriSTI and ORBITS appear only if available.",
     )
     if "TSGuard" not in selected:
         selected.insert(0, "TSGuard")
@@ -465,13 +464,16 @@ def add_models_comparison_panel():
 
     col_left, col_right = st.columns([1, 2], gap="large")
 
-    # 3) Captor list (all captors from dataset if possible)
-    snapshot = SS.get("model_comparison_snapshot")
+    # Read history instead of only one snapshot
+    hist = SS.get("model_comparison_history", [])
+
+    # Captor list
     captor_ids = SS.get("sensor_list")
 
-    if not captor_ids and snapshot:
-        ts_vals = snapshot.get("TSGuard_values") or {}
-        captor_ids = list(ts_vals.keys())
+    if not captor_ids and hist:
+        hist_df_tmp = pd.DataFrame(hist)
+        if "sensor_id" in hist_df_tmp.columns:
+            captor_ids = sorted(hist_df_tmp["sensor_id"].dropna().astype(str).unique().tolist())
 
     if not captor_ids:
         with col_left:
@@ -486,96 +488,209 @@ def add_models_comparison_panel():
     with col_left:
         st.markdown("#### Captors")
 
-        # Fixed-height scrollable box for the captor list
-        with st.container(height=260, border=False):   # tweak 260 -> 300 if you want it taller
-            current = SS.get("comparison_selected_captor")
-            try:
-                idx = captor_ids.index(current) if current in captor_ids else 0
-            except ValueError:
-                idx = 0
+        ALL_CAPTORS_OPTION = "✨ All captors"
+        captor_options = [ALL_CAPTORS_OPTION] + captor_ids
 
-            selected_captor = st.radio(
-                "Select a captor to inspect",
-                options=captor_ids,
-                index=idx,
-                key="comparison_selected_captor",
-            )
+        current = SS.get("comparison_selected_captor", ALL_CAPTORS_OPTION)
+        if current not in captor_options:
+            current = ALL_CAPTORS_OPTION
 
+        selected_captor = st.selectbox(
+            "Select a captor",
+            options=captor_options,
+            index=captor_options.index(current),
+            key="comparison_selected_captor",
+            help="You can search by captor ID or choose All captors.",
+        )
 
-
-    # Right: details for that captor
+    # Right: graph + latest values
     with col_right:
-        if not snapshot:
+        if not hist:
             st.info("Start TSGuard Simulation to see live model outputs.")
             return
 
-        ts = snapshot.get("timestamp")
+        cmp_df = pd.DataFrame(hist)
+        if cmp_df.empty:
+            st.info("No comparison history yet.")
+            return
+
+        cmp_df["timestamp"] = pd.to_datetime(cmp_df["timestamp"], errors="coerce")
+        cmp_df["sensor_id"] = cmp_df["sensor_id"].astype(str)
+        cmp_df = cmp_df.dropna(subset=["timestamp"])
+
         coords_by_col = SS.get("captor_coords_by_data_col") or {}
         coords_by_id = SS.get("captor_coords_by_sensor_id") or {}
-        coord = coords_by_col.get(selected_captor) or coords_by_id.get(selected_captor)
 
-        st.markdown(f"#### Captor {selected_captor}")
-        if ts is not None:
-            st.write(f"**Time:** {ts}")
+        ALL_CAPTORS_OPTION = "✨ All captors"
 
-        if coord:
-            try:
-                lat = float(coord.get("latitude"))
-                lon = float(coord.get("longitude"))
-                st.write(f"**Coordinates:** {lat:.4f}, {lon:.4f}")
-            except Exception:
-                st.write("**Coordinates:** —")
+        if selected_captor == ALL_CAPTORS_OPTION:
+            st.markdown("#### All captors")
+            plot_df = cmp_df[cmp_df["model"].isin(selected)].sort_values("timestamp")
         else:
-            st.write("**Coordinates:** —")
+            coord = coords_by_col.get(selected_captor) or coords_by_id.get(selected_captor)
+            st.markdown(f"#### Captor {selected_captor}")
 
-        # Build comparison table
-        rows = []
-        for model_name in selected:
-            values_key = f"{model_name}_values"
-            flags_key = f"{model_name}_imputed"
-            vals = snapshot.get(values_key) or {}
-            flags = snapshot.get(flags_key) or {}
-
-            raw_val = vals.get(selected_captor)
-
-            if isinstance(raw_val, (int, float, np.floating)):
-                value_str = "N/A" if np.isnan(raw_val) else f"{float(raw_val):.3f}"
-            elif raw_val is None:
-                value_str = "N/A"
-            else:
+            if coord:
                 try:
-                    v = float(raw_val)
-                    value_str = f"{v:.3f}"
+                    lat = float(coord.get("latitude"))
+                    lon = float(coord.get("longitude"))
+                    st.write(f"**Coordinates:** {lat:.4f}, {lon:.4f}")
                 except Exception:
-                    value_str = "N/A"
+                    st.write("**Coordinates:** —")
+            else:
+                st.write("**Coordinates:** —")
 
-            status = "imputed" if bool(flags.get(selected_captor, False)) else "observed"
+            plot_df = cmp_df[
+                (cmp_df["sensor_id"] == selected_captor) &
+                (cmp_df["model"].isin(selected))
+                ].sort_values("timestamp")
 
-            if value_str == "N/A":
-                status = "missing"
+        if plot_df.empty:
+            st.info("No model outputs available yet for this selection.")
+            return
 
-            rows.append(
-                {
-                    "Model": model_name,
-                    "Value": value_str,
-                    "Status": status,
-                }
+        latest_ts = plot_df["timestamp"].max()
+        st.write(f"**Latest time:** {latest_ts}")
+
+        # ---- Time-series graph ----
+        fig = go.Figure()
+
+        if selected_captor == ALL_CAPTORS_OPTION:
+            # one line per (model, captor)
+            for model_name in selected:
+                model_df = plot_df[plot_df["model"] == model_name]
+                if model_df.empty:
+                    continue
+
+                for sid in sorted(model_df["sensor_id"].dropna().unique()):
+                    sid_df = model_df[model_df["sensor_id"] == sid].sort_values("timestamp")
+                    if sid_df.empty:
+                        continue
+
+                    fig.add_trace(go.Scatter(
+                        x=sid_df["timestamp"],
+                        y=sid_df["value"],
+                        mode="lines",
+                        name=f"{model_name} — {sid}",
+                        connectgaps=False,
+                        opacity=0.75,
+                        customdata=sid_df[["imputed"]].to_numpy(),
+                        hovertemplate=(
+                                "Captor: " + str(sid) + "<br>"
+                                                        "Model: " + str(model_name) + "<br>"
+                                                                                      "Time: %{x}<br>"
+                                                                                      "Value: %{y:.3f}<br>"
+                                                                                      "Imputed: %{customdata[0]}<extra></extra>"
+                        ),
+                    ))
+            chart_title = "Time-series comparison — All captors"
+        else:
+            # one line per model for the selected captor
+            for model_name in selected:
+                model_df = plot_df[plot_df["model"] == model_name].sort_values("timestamp")
+                if model_df.empty:
+                    continue
+
+                fig.add_trace(go.Scatter(
+                    x=model_df["timestamp"],
+                    y=model_df["value"],
+                    mode="lines+markers",
+                    name=model_name,
+                    connectgaps=False,
+                    customdata=model_df[["imputed"]].to_numpy(),
+                    hovertemplate=(
+                        "Model: %{fullData.name}<br>"
+                        "Time: %{x}<br>"
+                        "Value: %{y:.3f}<br>"
+                        "Imputed: %{customdata[0]}<extra></extra>"
+                    ),
+                ))
+            chart_title = f"Time-series comparison — Captor {selected_captor}"
+
+        fig.update_layout(
+            title=chart_title,
+            xaxis_title="Time",
+            yaxis_title="Value",
+            template="plotly_white",
+            hovermode="x unified",
+            margin=dict(l=20, r=20, t=50, b=20),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="left",
+                x=0
+            ),
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # ---- Latest values summary ----
+        latest_rows = []
+        latest_df = plot_df[plot_df["timestamp"] == latest_ts].copy()
+
+        if selected_captor == ALL_CAPTORS_OPTION:
+            grouped_latest = (
+                latest_df.sort_values(["model", "sensor_id"])
+                [["model", "sensor_id", "value", "imputed"]]
+                .copy()
             )
 
-        if rows:
-            st.table(pd.DataFrame(rows))
+            if not grouped_latest.empty:
+                grouped_latest["Latest value"] = grouped_latest["value"].apply(
+                    lambda v: "N/A" if pd.isna(v) else f"{float(v):.3f}"
+                )
+                grouped_latest["Status"] = grouped_latest.apply(
+                    lambda r: "missing" if pd.isna(r["value"]) else ("imputed" if bool(r["imputed"]) else "observed"),
+                    axis=1,
+                )
+                grouped_latest = grouped_latest.rename(
+                    columns={"model": "Model", "sensor_id": "Captor"}
+                )[["Model", "Captor", "Latest value", "Status"]]
+
+                st.markdown("#### Latest timestamp summary")
+                st.dataframe(grouped_latest, use_container_width=True, hide_index=True)
         else:
-            st.info("No model outputs available yet for this captor.")
+            for model_name in selected:
+                model_latest = latest_df[latest_df["model"] == model_name]
+                if model_latest.empty:
+                    latest_rows.append({
+                        "Model": model_name,
+                        "Latest value": "N/A",
+                        "Status": "missing",
+                    })
+                    continue
 
-        # Optional difference when two models are selected (first two)
-        if len(selected) >= 2:
-            m1, m2 = selected[:2]
-            v1 = snapshot.get(f"{m1}_values", {}).get(selected_captor)
-            v2 = snapshot.get(f"{m2}_values", {}).get(selected_captor)
+                row = model_latest.iloc[-1]
+                raw_val = row["value"]
 
-            if all(
-                isinstance(v, (int, float, np.floating)) and not np.isnan(v)
-                for v in (v1, v2)
-            ):
-                diff = float(v2) - float(v1)
-                st.markdown(f"**Δ({m2} – {m1}) = {diff:.3f}**")
+                if pd.isna(raw_val):
+                    value_str = "N/A"
+                    status = "missing"
+                else:
+                    value_str = f"{float(raw_val):.3f}"
+                    status = "imputed" if bool(row["imputed"]) else "observed"
+
+                latest_rows.append({
+                    "Model": model_name,
+                    "Latest value": value_str,
+                    "Status": status,
+                })
+
+            if latest_rows:
+                st.markdown("#### Latest timestamp summary")
+                st.table(pd.DataFrame(latest_rows))
+
+            # Optional difference when two models are selected
+            if len(selected) >= 2:
+                m1, m2 = selected[:2]
+                latest_m1 = latest_df[latest_df["model"] == m1]
+                latest_m2 = latest_df[latest_df["model"] == m2]
+
+                if not latest_m1.empty and not latest_m2.empty:
+                    v1 = latest_m1.iloc[-1]["value"]
+                    v2 = latest_m2.iloc[-1]["value"]
+
+                    if pd.notna(v1) and pd.notna(v2):
+                        diff = float(v2) - float(v1)
+                        st.markdown(f"**Δ({m2} – {m1}) at latest timestamp = {diff:.3f}**")
