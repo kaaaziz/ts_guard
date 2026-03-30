@@ -147,13 +147,13 @@ threadpoolctl==3.5.0
 tinycss2==1.4.0
 toml==0.10.2
 tomli==2.2.1
-#torch==2.6.0
-#torch-geometric==2.6.1
-#torchaudio==2.6.0
-#torchcde==0.2.5
-#torchdiffeq==0.2.5
-#torchsde==0.2.6
-#torchvision==0.21.0
+torch==2.6.0
+torch-geometric==2.6.1
+torchaudio==2.6.0
+torchcde==0.2.5
+torchdiffeq==0.2.5
+torchsde==0.2.6
+torchvision==0.21.0
 tornado==6.5.2
 tqdm==4.67.1
 traitlets==5.14.3
@@ -178,3 +178,4 @@ widgetsnbextension==4.0.15
 xyzservices==2025.1.0
 yarl==1.18.3
 zipp==3.21.0
+apache-iotdb==2.0.6

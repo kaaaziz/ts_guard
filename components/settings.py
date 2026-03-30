@@ -4,7 +4,7 @@ import components.chatbot as chatbot
 
 import pandas as pd
 import numpy as np
-
+import plotly.graph_objects as go
 # ----------------------------
 # Setting Management
 # ----------------------------
@@ -424,20 +424,13 @@ def add_captor_panel():
 # Models Comparison Management
 # ----------------------------
 def add_models_comparison_panel():
-    """
-    Live per-captor model comparison (TSGuard vs PriSTI, etc.).
-    Reads a snapshot produced by run_simulation_with_live_imputation.
-    """
     SS = st.session_state
     st.markdown("### 📊 Models Comparison")
 
-    # ---- PriSTI debug: show last internal error if any ----
     pristi_err = SS.get("pristi_last_error")
     if pristi_err:
         st.warning(f"PriSTI internal error: {pristi_err}")
-    # -------------------------------------------------------
 
-    # 1) Which models are available?
     available_raw = SS.get("available_models", {"TSGuard"})
     if isinstance(available_raw, set):
         available = sorted(available_raw)
@@ -449,7 +442,6 @@ def add_models_comparison_panel():
     if "TSGuard" not in available:
         available.insert(0, "TSGuard")
 
-    # 2) Multiselect for models (TSGuard always enforced)
     default_models = SS.get("comparison_models", ["TSGuard"])
     default_valid = [m for m in default_models if m in available] or ["TSGuard"]
 
@@ -457,125 +449,325 @@ def add_models_comparison_panel():
         "Select which models to display:",
         options=available,
         default=default_valid,
-        help="TSGuard is always shown; PriSTI appears only if its artifacts are available.",
+        help="TSGuard is always shown; PriSTI and ORBITS appear only if available.",
     )
     if "TSGuard" not in selected:
         selected.insert(0, "TSGuard")
     SS["comparison_models"] = selected
 
-    col_left, col_right = st.columns([1, 2], gap="large")
-
-    # 3) Captor list (all captors from dataset if possible)
-    snapshot = SS.get("model_comparison_snapshot")
-    captor_ids = SS.get("sensor_list")
-
-    if not captor_ids and snapshot:
-        ts_vals = snapshot.get("TSGuard_values") or {}
-        captor_ids = list(ts_vals.keys())
-
-    if not captor_ids:
-        with col_left:
-            st.info("Captors will appear here once data is loaded.")
-        with col_right:
-            st.info("Start TSGuard Simulation to see live model outputs.")
-        return
-
-    captor_ids = sorted({str(c) for c in captor_ids})
-
-    # Left: captor selector
-    with col_left:
-        st.markdown("#### Captors")
-
-        # Fixed-height scrollable box for the captor list
-        with st.container(height=260, border=False):   # tweak 260 -> 300 if you want it taller
-            current = SS.get("comparison_selected_captor")
-            try:
-                idx = captor_ids.index(current) if current in captor_ids else 0
-            except ValueError:
-                idx = 0
-
-            selected_captor = st.radio(
-                "Select a captor to inspect",
-                options=captor_ids,
-                index=idx,
-                key="comparison_selected_captor",
-            )
-
-
-
-    # Right: details for that captor
-    with col_right:
-        if not snapshot:
+    # ---- Dynamic comparison area rendered in ONE persistent placeholder ----
+    with st.container():
+        hist = SS.get("model_comparison_history", [])
+        if not hist:
             st.info("Start TSGuard Simulation to see live model outputs.")
             return
 
-        ts = snapshot.get("timestamp")
-        coords_by_col = SS.get("captor_coords_by_data_col") or {}
-        coords_by_id = SS.get("captor_coords_by_sensor_id") or {}
-        coord = coords_by_col.get(selected_captor) or coords_by_id.get(selected_captor)
+        cmp_df = pd.DataFrame(hist)
+        if cmp_df.empty:
+            st.info("No comparison history yet.")
+            return
 
-        st.markdown(f"#### Captor {selected_captor}")
-        if ts is not None:
-            st.write(f"**Time:** {ts}")
+        cmp_df["timestamp"] = pd.to_datetime(cmp_df["timestamp"], errors="coerce")
+        cmp_df["sensor_id"] = cmp_df["sensor_id"].astype(str)
+        cmp_df = cmp_df.dropna(subset=["timestamp"])
 
-        if coord:
-            try:
-                lat = float(coord.get("latitude"))
-                lon = float(coord.get("longitude"))
-                st.write(f"**Coordinates:** {lat:.4f}, {lon:.4f}")
-            except Exception:
-                st.write("**Coordinates:** —")
-        else:
-            st.write("**Coordinates:** —")
+        if "fallback" not in cmp_df.columns:
+            cmp_df["fallback"] = False
+        if "ground_truth" not in cmp_df.columns:
+            cmp_df["ground_truth"] = np.nan
 
-        # Build comparison table
-        rows = []
-        for model_name in selected:
-            values_key = f"{model_name}_values"
-            flags_key = f"{model_name}_imputed"
-            vals = snapshot.get(values_key) or {}
-            flags = snapshot.get(flags_key) or {}
+        captor_ids = SS.get("sensor_list")
+        if not captor_ids and "sensor_id" in cmp_df.columns:
+            captor_ids = sorted(cmp_df["sensor_id"].dropna().astype(str).unique().tolist())
 
-            raw_val = vals.get(selected_captor)
+        if not captor_ids:
+            st.info("Captors will appear here once data is loaded.")
+            return
 
-            if isinstance(raw_val, (int, float, np.floating)):
-                value_str = "N/A" if np.isnan(raw_val) else f"{float(raw_val):.3f}"
-            elif raw_val is None:
-                value_str = "N/A"
+        captor_ids = sorted({str(c) for c in captor_ids})
+
+        base_palette = [
+            "#000000", "#003366", "#009999", "#006600", "#66CC66",
+            "#FF9933", "#FFD700", "#708090", "#4682B4", "#99FF33"
+        ]
+
+        known_order = [str(c) for c in SS.get("sensor_list", [])]
+        sensor_order = known_order + [c for c in captor_ids if c not in known_order]
+
+        sensor_color_map = {
+            c: base_palette[i % len(base_palette)]
+            for i, c in enumerate(sensor_order)
+        }
+
+        IMPUTED_COLORS = {
+            "TSGuard": "#A855F7",   # mauve
+            "PriSTI": "#EC4899",    # rose
+            "ORBITS": "#F59E0B",    # orange
+        }
+        FALLBACK_COLOR = "#7C3AED"  # violet foncé
+
+        MODEL_LABELS = {
+            "TSGuard": "TSGuard",
+            "PriSTI": "PriSTI-ON",
+            "ORBITS": "ORBITS",
+        }
+
+        ALL_CAPTORS_OPTION = "✨ All captors"
+
+        col_left, col_right = st.columns([1, 2], gap="large")
+        col_right = st.container()
+
+        with col_left:
+            st.markdown("#### Captors")
+
+            captor_options = [ALL_CAPTORS_OPTION] + captor_ids
+            current = SS.get("comparison_selected_captor", ALL_CAPTORS_OPTION)
+            if current not in captor_options:
+                current = ALL_CAPTORS_OPTION
+
+            selected_captor = st.selectbox(
+                "Select a captor",
+                options=captor_options,
+                index=captor_options.index(current),
+                key="comparison_selected_captor",
+                help="Search a captor or choose All captors.",
+            )
+        # with col_left:
+        #     st.markdown("#### Captors")
+        #
+        #     captor_options = [ALL_CAPTORS_OPTION] + captor_ids
+        #     current = SS.get("comparison_selected_captor", ALL_CAPTORS_OPTION)
+        #     if current not in captor_options:
+        #         current = ALL_CAPTORS_OPTION
+        #
+        #     selected_captor = st.selectbox(
+        #         "Select a captor",
+        #         options=captor_options,
+        #         index=captor_options.index(current),
+        #         key="comparison_selected_captor",
+        #         help="Search a captor or choose All captors.",
+        #     )
+        #
+        #     st.markdown("#### Captor colors")
+        #     with st.container(height=320, border=True):
+        #         for sid in captor_ids:
+        #             color = sensor_color_map.get(sid, "#334155")
+        #             st.markdown(
+        #                 f"<span style='color:{color}; font-size:18px;'>●</span> Sensor {sid}",
+        #                 unsafe_allow_html=True,
+        #             )
+
+        with st.container():
+            if selected_captor == ALL_CAPTORS_OPTION:
+                sensor_targets = captor_ids
+                st.markdown("#### All captors")
+                plot_df = cmp_df[cmp_df["model"].isin(selected)].sort_values("timestamp")
             else:
-                try:
-                    v = float(raw_val)
-                    value_str = f"{v:.3f}"
-                except Exception:
-                    value_str = "N/A"
+                sensor_targets = [selected_captor]
+                st.markdown(f"#### Captor {selected_captor}")
+                plot_df = cmp_df[
+                    (cmp_df["sensor_id"] == selected_captor) &
+                    (cmp_df["model"].isin(selected))
+                ].sort_values("timestamp")
 
-            status = "imputed" if bool(flags.get(selected_captor, False)) else "observed"
+            if plot_df.empty:
+                st.info("No model outputs available yet for this selection.")
+                return
 
-            if value_str == "N/A":
-                status = "missing"
+            latest_ts = plot_df["timestamp"].max()
+            st.write(f"**Latest time:** {latest_ts}")
 
-            rows.append(
-                {
-                    "Model": model_name,
-                    "Value": value_str,
-                    "Status": status,
-                }
+            fig = go.Figure()
+
+            # Observed curves
+            for sid in sensor_targets:
+                sid_df = plot_df[plot_df["sensor_id"] == sid].sort_values("timestamp")
+                if sid_df.empty:
+                    continue
+
+                observed_df = sid_df[
+                    (sid_df["model"] == "TSGuard") &
+                    (~sid_df["imputed"])
+                ].copy()
+
+                if observed_df.empty:
+                    observed_df = sid_df[~sid_df["imputed"]].drop_duplicates(
+                        subset=["timestamp"], keep="first"
+                    ).copy()
+
+                if observed_df.empty:
+                    continue
+
+                fig.add_trace(go.Scatter(
+                    x=observed_df["timestamp"],
+                    y=observed_df["value"],
+                    mode="lines",
+                    name=f"Observed — {sid}" if selected_captor != ALL_CAPTORS_OPTION else sid,
+                    showlegend=False,
+                    connectgaps=False,
+                    line=dict(
+                        color=sensor_color_map.get(sid, "#334155"),
+                        width=2 if selected_captor != ALL_CAPTORS_OPTION else 1.3
+                    ),
+                    hovertemplate=(
+                        f"Captor: {sid}<br>"
+                        "Series: Observed<br>"
+                        "Time: %{x}<br>"
+                        "Value: %{y:.3f}<extra></extra>"
+                    ),
+                ))
+
+            def add_imputed_points(df_points, legend_name, color, symbol="circle"):
+                if df_points.empty:
+                    return
+
+                gt_text = df_points["ground_truth"].apply(
+                    lambda v: "N/A" if pd.isna(v) else f"{float(v):.3f}"
+                )
+
+                customdata = np.column_stack([
+                    df_points["sensor_id"].astype(str),
+                    gt_text.to_numpy(),
+                    df_points["fallback"].astype(str).to_numpy(),
+                ])
+
+                fig.add_trace(go.Scatter(
+                    x=df_points["timestamp"],
+                    y=df_points["value"],
+                    mode="markers",
+                    name=legend_name,
+                    showlegend=True,
+                    marker=dict(
+                        color=color,
+                        size=8 if selected_captor != ALL_CAPTORS_OPTION else 7,
+                        symbol=symbol,
+                        line=dict(color="white", width=0.7),
+                    ),
+                    customdata=customdata,
+                    hovertemplate=(
+                        "Captor: %{customdata[0]}<br>"
+                        f"Series: {legend_name}<br>"
+                        "Time: %{x}<br>"
+                        "Predicted: %{y:.3f}<br>"
+                        "Ground truth: %{customdata[1]}<br>"
+                        "Fallback: %{customdata[2]}<extra></extra>"
+                    ),
+                ))
+
+            scope_df = plot_df.copy()
+
+            if "TSGuard" in selected:
+                normal_tsg = scope_df[
+                    (scope_df["model"] == "TSGuard") &
+                    (scope_df["imputed"]) &
+                    (~scope_df["fallback"])
+                ].copy()
+
+                fallback_tsg = scope_df[
+                    (scope_df["model"] == "TSGuard") &
+                    (scope_df["imputed"]) &
+                    (scope_df["fallback"])
+                ].copy()
+
+                add_imputed_points(normal_tsg, "TSGuard imputed", IMPUTED_COLORS["TSGuard"])
+                add_imputed_points(fallback_tsg, "TSGuard fallback", FALLBACK_COLOR, symbol="diamond")
+
+            if "PriSTI" in selected:
+                pristi_imp = scope_df[
+                    (scope_df["model"] == "PriSTI") &
+                    (scope_df["imputed"])
+                ].copy()
+                add_imputed_points(pristi_imp, "PriSTI-ON imputed", IMPUTED_COLORS["PriSTI"])
+
+            if "ORBITS" in selected:
+                orbits_imp = scope_df[
+                    (scope_df["model"] == "ORBITS") &
+                    (scope_df["imputed"])
+                ].copy()
+                add_imputed_points(orbits_imp, "ORBITS imputed", IMPUTED_COLORS["ORBITS"])
+
+            fig.update_layout(
+                title=(
+                    "Time-series comparison — All captors"
+                    if selected_captor == ALL_CAPTORS_OPTION
+                    else f"Time-series comparison — Captor {selected_captor}"
+                ),
+                xaxis_title="Time",
+                yaxis_title="Value",
+                template="plotly_white",
+                hovermode="closest",
+                margin=dict(l=20, r=20, t=50, b=20),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="left",
+                    x=0
+                ),
             )
 
-        if rows:
-            st.table(pd.DataFrame(rows))
-        else:
-            st.info("No model outputs available yet for this captor.")
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                key=f"cmp_chart_{selected_captor}_{'_'.join(selected)}"
+            )
 
-        # Optional difference when two models are selected (first two)
-        if len(selected) >= 2:
-            m1, m2 = selected[:2]
-            v1 = snapshot.get(f"{m1}_values", {}).get(selected_captor)
-            v2 = snapshot.get(f"{m2}_values", {}).get(selected_captor)
+            def _compute_metrics(eval_df):
+                tmp = eval_df[
+                    (eval_df["imputed"]) &
+                    (eval_df["value"].notna()) &
+                    (eval_df["ground_truth"].notna())
+                ].copy()
 
-            if all(
-                isinstance(v, (int, float, np.floating)) and not np.isnan(v)
-                for v in (v1, v2)
-            ):
-                diff = float(v2) - float(v1)
-                st.markdown(f"**Δ({m2} – {m1}) = {diff:.3f}**")
+                n = len(tmp)
+                if n == 0:
+                    return {
+                        "Compared points": 0,
+                        "MAE": "—",
+                        "RMSE": "—",
+                        "R²": "—",
+                    }
+
+                y = tmp["ground_truth"].astype(float).to_numpy()
+                yhat = tmp["value"].astype(float).to_numpy()
+
+                err = yhat - y
+                mae = float(np.mean(np.abs(err)))
+                rmse = float(np.sqrt(np.mean(err ** 2)))
+
+                ss_res = float(np.sum((y - yhat) ** 2))
+                ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+
+                if n < 2 or ss_tot <= 1e-12:
+                    r2_str = "—"
+                else:
+                    r2 = 1.0 - (ss_res / ss_tot)
+                    r2_str = f"{r2:.4f}"
+
+                return {
+                    "Compared points": int(n),
+                    "MAE": f"{mae:.4f}",
+                    "RMSE": f"{rmse:.4f}",
+                    "R²": r2_str,
+                }
+
+            recent_timestamps = sorted(scope_df["timestamp"].dropna().unique())
+            recent_timestamps = recent_timestamps[-10:]
+            recent_scope_df = scope_df[scope_df["timestamp"].isin(recent_timestamps)].copy()
+
+            metrics_rows = []
+            for model_name in selected:
+                model_scope = recent_scope_df[recent_scope_df["model"] == model_name].copy()
+                m = _compute_metrics(model_scope)
+                metrics_rows.append({
+                    "Model": MODEL_LABELS.get(model_name, model_name),
+                    **m
+                })
+
+            # if metrics_rows:
+            #     st.markdown("#### Error summary on imputed points (last 10 timestamps)")
+            #     st.dataframe(
+            #         pd.DataFrame(metrics_rows),
+            #         use_container_width=True,
+            #         hide_index=True
+            #     )

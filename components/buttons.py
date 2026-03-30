@@ -17,3 +17,6 @@ def add_buttons():
         if st.button("▶️ Start TSGuard Simulation", use_container_width=True):
             st.session_state.page = "sim"
             st.session_state.running = True
+
+            # Force a fresh run namespace on every new experiment run
+            st.session_state.pop("current_run_id", None)

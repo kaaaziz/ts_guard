@@ -1696,6 +1696,77 @@ def toast_notify(level: str, text: str, dedup_key: str|None = None):
     st.toast(f"{icon} {text}", icon=None)  # icon dans le texte pour garder les couleurs Streamlit
 
 
+#======== Final canonical output persistence to IoTDB (with source_kind and constraint flags) ========
+def write_canonical_outputs_to_iotdb(
+    ts: pd.Timestamp,
+    sensor_cols: list[str],
+    dynamic_sensor_cols: list[str],
+    vals_by_col: dict,
+    real_by_col: dict,
+    original_imputed_values: dict,
+    violating_imputed: dict,
+    violating_real: dict,
+    iotdb_writer=None,
+    current_run_id: str | None = None,
+):
+    """
+    Persist final canonical outputs for the current tick to IoTDB.
+
+    Policy:
+    - real values -> source_kind='real'
+    - normal hybrid output -> source_kind='imputed'
+    - fallback after constraint violation -> source_kind='fallback'
+    - dynamic captors use rule-based spatial interpolation -> source_kind='fallback'
+    - NaN values are skipped
+    """
+    if iotdb_writer is None:
+        return
+
+    all_cols = list(sensor_cols) + list(dynamic_sensor_cols)
+
+    for col in all_cols:
+        value = vals_by_col.get(col, np.nan)
+        if value is None:
+            continue
+        try:
+            value = float(value)
+        except Exception:
+            continue
+        if not np.isfinite(value):
+            continue
+
+        if bool(real_by_col.get(col, False)):
+            source_kind = "real"
+            strategy = "pass_through"
+            constraint_flag = col in violating_real
+        else:
+            constraint_flag = col in violating_imputed
+
+            if col in dynamic_sensor_cols:
+                source_kind = "fallback"
+                strategy = "dynamic_spatial_interpolation"
+            elif col in original_imputed_values and constraint_flag:
+                source_kind = "fallback"
+                violated = "+".join(sorted(violating_imputed.get(col, set()))) or "constraint"
+                strategy = f"spatial_fallback_after_{violated}"
+            elif col in original_imputed_values:
+                source_kind = "imputed"
+                strategy = "tsguard_hybrid"
+            else:
+                source_kind = "fallback"
+                strategy = "rule_based"
+
+        if current_run_id:
+            iotdb_writer.write_point(
+                timestamp=ts,
+                run_id=current_run_id,
+                sensor_id=col,
+                value=value,
+                source_kind=source_kind,
+                constraint_flag=constraint_flag,
+                strategy=strategy,
+            )
+
 def run_simulation_with_live_imputation(
     sim_df: pd.DataFrame,
     missing_df: pd.DataFrame,
@@ -1715,6 +1786,8 @@ def run_simulation_with_live_imputation(
     clim_beta: float = 0.3,
     domain_clip_min=None,
     domain_clip_max=None,
+    iotdb_writer=None, #IoTDB writer for final output persistence
+    current_run_id: str|None = None, #Current run ID for IoTDB persistence
 ):
 
     SS = st.session_state
@@ -1738,7 +1811,7 @@ def run_simulation_with_live_imputation(
     # Load imputer config once (cache in session state)
     if "imputer_config" not in st.session_state:
         try:
-            # assuming model_path was something like ".../gcn_lstm_imputer.pth"
+            model_path: str = "gcn_lstm_imputer.pth"
             cfg_path = str(Path(model_path).with_suffix("")) + "_imputer_config.json"
             with open(cfg_path, "r") as f:
                 st.session_state["imputer_config"] = json.load(f)
@@ -2152,6 +2225,7 @@ def run_simulation_with_live_imputation(
     init_once("global_df", pd.DataFrame(columns=["datetime"] + imputed_cols))
     init_once("impute_time_tsg", {})  # per-timestamp seconds
     init_once("impute_time_pri", {})
+    init_once("model_comparison_history", [])
 
 
 
@@ -2351,6 +2425,10 @@ def run_simulation_with_live_imputation(
     ptr = int(SS["sim_ptr"])
     total_steps = len(common_index)
     SS["sim_total_steps"] = total_steps
+
+    if ptr == 0:
+        SS["model_comparison_history"] = []
+        SS.pop("_comparison_panel_ph", None)
 
     # Nothing left to simulate → stop cleanly
     if ptr >= total_steps:
@@ -2875,61 +2953,65 @@ def run_simulation_with_live_imputation(
             pristi_row = None
             pristi_flags = None
             SS["pristi_last_error"] = str(e)
-            print("[PriSTI] ERROR:", e, flush=True)          
+            print("[PriSTI] ERROR:", e, flush=True)
 
-    # ---- Publish snapshot for the Models Comparison tab ----
-    try:
-        # TSGuard part (unchanged)
-        snapshot = {
-            "timestamp": ts,
-            "TSGuard_values": dict(vals_by_col),
-            "TSGuard_imputed": {
-                str(k): bool(imputed_row.get(k, False))
-                for k in vals_by_col.keys()
-            },
-        }
-
-        # ---- ORBITS offline values (same captor ids as TSGuard) ----
-        all_ids = list(vals_by_col.keys())
-
-        if orbits_row is not None and orbits_flags is not None:
-            orbits_values = {}
-            orbits_imputed = {}
-            for k in all_ids:
-                # value from ORBITS df, or NaN if ORBITS doesn't have this captor
-                v = orbits_row.get(k, np.nan)
-                orbits_values[str(k)] = float(v) if pd.notna(v) else np.nan
-                # we mark the same originally-missing cells as "imputed" for ORBITS
-                orbits_imputed[str(k)] = bool(orbits_flags.get(k, False))
-
-            snapshot["ORBITS_values"] = orbits_values
-            snapshot["ORBITS_imputed"] = orbits_imputed        
-            
-
-        # ✅ NEW: always build PriSTI dicts over the SAME captor ids as TSGuard
-        all_ids = list(vals_by_col.keys())
-        pri_values = {str(k): np.nan for k in all_ids}
-        pri_imputed = {str(k): False for k in all_ids}
-
-        if pristi_row is not None and pristi_flags is not None:
-            for k in pristi_row.index:
-                if k not in pri_values:
-                    # PriSTI may cover only a subset of stations; ignore others
-                    continue
-                v = pristi_row[k]
-                pri_values[str(k)] = float(v) if pd.notna(v) else np.nan
-                pri_imputed[str(k)] = bool(pristi_flags.get(k, False))
-
-            snapshot["PriSTI_values"] = pri_values
-            snapshot["PriSTI_imputed"] = pri_imputed
-
-        SS["model_comparison_snapshot"] = snapshot
-        SS["current_sim_timestamp"] = ts
-        SS["tsguard_sensor_ids"] = list(all_ids)
-    except Exception:
-        # Snapshot is strictly best-effort; never break the simulation
-        pass
-
+    # # ---- Publish comparison history for the Models Comparison tab ----
+    # try:
+    #     def _safe_float(v):
+    #         try:
+    #             return float(v) if pd.notna(v) else np.nan
+    #         except Exception:
+    #             return np.nan
+    #
+    #     all_ids = list(vals_by_col.keys())
+    #     current_rows = []
+    #
+    #     # TSGuard rows
+    #     for sid in all_ids:
+    #         current_rows.append({
+    #             "timestamp": ts,
+    #             "sensor_id": str(sid),
+    #             "model": "TSGuard",
+    #             "value": _safe_float(vals_by_col.get(sid, np.nan)),
+    #             "imputed": bool(imputed_row.get(sid, False)),
+    #         })
+    #
+    #     # PriSTI rows
+    #     if pristi_row is not None and pristi_flags is not None:
+    #         for sid in all_ids:
+    #             v = pristi_row.get(sid, np.nan)
+    #             current_rows.append({
+    #                 "timestamp": ts,
+    #                 "sensor_id": str(sid),
+    #                 "model": "PriSTI",
+    #                 "value": _safe_float(v),
+    #                 "imputed": bool(pristi_flags.get(sid, False)),
+    #             })
+    #
+    #     # ORBITS rows
+    #     if orbits_row is not None and orbits_flags is not None:
+    #         for sid in all_ids:
+    #             v = orbits_row.get(sid, np.nan)
+    #             current_rows.append({
+    #                 "timestamp": ts,
+    #                 "sensor_id": str(sid),
+    #                 "model": "ORBITS",
+    #                 "value": _safe_float(v),
+    #                 "imputed": bool(orbits_flags.get(sid, False)),
+    #             })
+    #
+    #     SS["model_comparison_history"].extend(current_rows)
+    #
+    #     # optional: keep latest snapshot too
+    #     SS["model_comparison_snapshot"] = {
+    #         "timestamp": ts,
+    #         "rows": current_rows,
+    #     }
+    #
+    #     SS["current_sim_timestamp"] = ts
+    #     SS["tsguard_sensor_ids"] = all_ids
+    # except Exception:
+    #     pass
 
     # --- Update missing streak (Scénario 1) ---
     if "_missing_streak_hours" not in SS:
@@ -3063,6 +3145,124 @@ def run_simulation_with_live_imputation(
         path="tsguard_imputations.csv",
         chunk_size=100,  # adapte selon ce que tu veux
     )
+
+    # ---- Canonical IoTDB write (final accepted outputs only) ----
+    write_canonical_outputs_to_iotdb(
+        ts=ts,
+        sensor_cols=sensor_cols,
+        dynamic_sensor_cols=dynamic_sensor_cols,
+        vals_by_col=vals_by_col,
+        real_by_col=real_by_col,
+        original_imputed_values=original_imputed_values,
+        violating_imputed=violating_imputed,
+        violating_real=violating_real,
+        iotdb_writer=iotdb_writer,
+        current_run_id=current_run_id,
+    )
+
+    # ---- Publish comparison history for the Models Comparison tab ----
+    try:
+        def _safe_float(v):
+            try:
+                return float(v) if pd.notna(v) else np.nan
+            except Exception:
+                return np.nan
+
+        def _ground_truth_for(sensor_id):
+            # sim_df is the aligned ground-truth dataframe for static captors
+            try:
+                sid = str(sensor_id)
+
+                if sid in sim_df.columns and ts in sim_df.index:
+                    v = sim_df.at[ts, sid]
+                    return _safe_float(v)
+
+                if sensor_id in sim_df.columns and ts in sim_df.index:
+                    v = sim_df.at[ts, sensor_id]
+                    return _safe_float(v)
+            except Exception:
+                pass
+            return np.nan
+
+        all_ids = list(vals_by_col.keys())
+
+        final_imputed_row = SS.imputed_mask.reindex(
+            index=[ts], columns=all_ids, fill_value=False
+        ).iloc[0]
+
+        # detect if TSGuard final value differs from its original imputed value
+        # => fallback replaced the original imputation
+        fallback_by_col = {}
+        for sid in all_ids:
+            sid_str = str(sid)
+            orig_val = original_imputed_values.get(sid_str, original_imputed_values.get(sid, np.nan))
+            final_val = vals_by_col.get(sid, np.nan)
+
+            changed_by_fallback = (
+                pd.notna(orig_val)
+                and pd.notna(final_val)
+                and not np.isclose(float(orig_val), float(final_val), rtol=0.0, atol=1e-12)
+            )
+            fallback_by_col[sid_str] = bool(changed_by_fallback)
+
+        current_rows = []
+
+        # TSGuard
+        for sid in all_ids:
+            sid_str = str(sid)
+            current_rows.append({
+                "timestamp": ts,
+                "sensor_id": sid_str,
+                "model": "TSGuard",
+                "value": _safe_float(vals_by_col.get(sid, np.nan)),
+                "imputed": bool(final_imputed_row.get(sid, False)),
+                "fallback": bool(fallback_by_col.get(sid_str, False)),
+                "ground_truth": _ground_truth_for(sid_str),
+            })
+
+        # PriSTI / PriSTI-ON
+        if pristi_row is not None and pristi_flags is not None:
+            for sid in all_ids:
+                sid_str = str(sid)
+                v = pristi_row.get(sid, np.nan)
+                current_rows.append({
+                    "timestamp": ts,
+                    "sensor_id": sid_str,
+                    "model": "PriSTI",
+                    "value": _safe_float(v),
+                    "imputed": bool(pristi_flags.get(sid, False)),
+                    "fallback": False,
+                    "ground_truth": _ground_truth_for(sid_str),
+                })
+
+        # ORBITS
+        if orbits_row is not None and orbits_flags is not None:
+            for sid in all_ids:
+                sid_str = str(sid)
+                v = orbits_row.get(sid, np.nan)
+                current_rows.append({
+                    "timestamp": ts,
+                    "sensor_id": sid_str,
+                    "model": "ORBITS",
+                    "value": _safe_float(v),
+                    "imputed": bool(orbits_flags.get(sid, False)),
+                    "fallback": False,
+                    "ground_truth": _ground_truth_for(sid_str),
+                })
+
+        SS["model_comparison_history"].extend(current_rows)
+
+        SS["model_comparison_snapshot"] = {
+            "timestamp": ts,
+            "rows": current_rows,
+        }
+
+        SS["current_sim_timestamp"] = ts
+        SS["tsguard_sensor_ids"] = all_ids
+
+    except Exception:
+        pass
+
 
     # ---- Buffers de rendu (fixed sliding window) ----
 
