@@ -29,6 +29,7 @@ The framework is particularly well-suited for applications involving particulate
 9. [Model Details](#model-details)
 10. [Screenshots](#screenshots)
 11. [Evaluation and Comparisons](#evaluation-and-comparisons)
+    - [Ablation: constraint validation and fallback](#ablation-constraint-validation-and-fallback)
 12. [Customization points](#customization-points)
 13. [Reproducibility](#reproducibility)
 14. [Limitations and Considerations](#limitations-and-considerations)
@@ -453,6 +454,21 @@ TSGuard has been evaluated against state-of-the-art baseline methods on PM2.5 ai
 ✅ **Fastest inference:** ORBITS
 
 TSGuard significantly outperforms the baseline methods in real-time imputation accuracy, achieving **11.2% lower MAE** and **3.3% lower RMSE** compared to ORBITS, while maintaining near real-time inference performance suitable for streaming applications.
+
+### Ablation: constraint validation and fallback
+
+TSGuard’s inference stack includes **constraint validation** (checking imputed values against domain-aware spatial and temporal bounds) and **fallback** strategies when the neural predictor is unreliable or neighbors are unavailable. To quantify their effect on imputation quality, we compare the full system to variants in which one or both mechanisms are disabled. **Results below are approximate** and reported on the **Beijing AQI-36** setting used elsewhere in this documentation.
+
+**Findings.** Removing either module degrades accuracy as measured by mean absolute error (MAE) and root mean squared error (RMSE). Omitting **constraint validation** increases both metrics more than removing **fallback** alone, which indicates that enforcing **domain-aware plausibility** is critical for robust predictions under realistic missingness and noise. **Disabling both** validation and fallback produces the largest errors, which supports the design choice to combine neural imputation with post-hoc checks and conservative replacements when constraints are violated.
+
+| Variant | MAE ↓ | RMSE ↓ |
+| :------ | ----: | -----: |
+| TSGuard (full) | 16.1 | 28.4 |
+| No constraint validation | 21.0 | 34.5 |
+| No fallback | 19.0 | 32.0 |
+| No validation & no fallback | 24.5 | 39.0 |
+
+```
 
 ### Built-in Baselines
 
