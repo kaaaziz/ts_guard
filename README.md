@@ -467,8 +467,7 @@ TSGuard’s inference stack includes **constraint validation** (checking imputed
 | No constraint validation | 21.0 | 34.5 |
 | No fallback | 19.0 | 32.0 |
 | No validation & no fallback | 24.5 | 39.0 |
-
-```
+---
 
 ### Built-in Baselines
 
