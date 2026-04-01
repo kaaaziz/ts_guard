@@ -355,7 +355,7 @@ model = train_model(
 
 A full demonstration of TSGuard’s real-time monitoring, imputation, and interactive features is available here:
 
-[Watch the Demo Video](https://drive.google.com/file/d/1ZNjlYOPJsEwFdzibX0PuElxRjD1wvtOT/view?usp=sharing)
+[Watch the Demo Video](https://drive.google.com/drive/u/0/folders/1OYDGnFiNeBXYuemVK84ZXY8YtZsryXFo)
 
 The video illustrates:
 
