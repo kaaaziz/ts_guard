@@ -1,7 +1,7 @@
 # TSGuard: Time-Series Guard for Real-Time Environmental Data Imputation
 
-**Version:** 0.1  
-**Last Updated:** 2025  
+**Version:** 0.2  
+**Last Updated:** 2026
 **License:** Apache-2.0
 
 ---
@@ -11,6 +11,8 @@
 TSGuard is an advanced research framework designed for robust, real-time imputation of missing values in satellite-derived environmental time series data. The system addresses a critical challenge in environmental monitoring: maintaining data continuity when sensor networks experience failures, communication delays, or data gaps. TSGuard combines state-of-the-art deep learning architectures (Graph Convolutional Networks and Long Short-Term Memory networks) with domain-aware rule-based fallbacks to provide reliable, streaming imputation capabilities.
 
 The framework is particularly well-suited for applications involving particulate matter (PM2.5) monitoring, air quality assessment, and other spatially-distributed environmental measurements where temporal continuity and spatial coherence are essential for accurate analysis and decision-making.
+
+Recent updates add an Apache IoTDB backend for canonical storage of simulation outputs and a hybrid assistant layer that uses a remote LLM (Groq) with fallback to the existing rule-based chatbot.
 
 > **📚 For detailed technical documentation** including mathematical formulations, advanced usage examples, and comprehensive API reference, see [TECHNICAL.md](TECHNICAL.md).
 
@@ -51,7 +53,7 @@ The framework is particularly well-suited for applications involving particulate
   -  Model training and simulation controls
   -  Comparative analysis with baseline methods (PriSTI, ORBIT)
   -  Configurable constraint systems (spatial and temporal)
-  -  AI-powered assistant for system guidance
+  -  AI-powered assistant for system guidance (Groq-backed LLM)
 
 - **🛡️ Domain-Aware Constraints**: Flexible constraint system supporting:
   - **Spatial constraints**: Distance-based neighbor relationships and maximum sensor value differences
@@ -66,12 +68,16 @@ The framework is particularly well-suited for applications involving particulate
   -  Constraint violation alerts
   -  Per-sensor performance analysis
 
+- **🗄️ Time-Series Persistence with IoTDB**: Supports canonical storage of accepted simulation outputs in Apache IoTDB, while CSV files remain the audit and experiment artifact layer.
+
 ### Technical Highlights
 
 - **Modular Architecture**: Clean separation between data processing, model training, inference, and visualization components
 - **Robust Data Handling**: Automatic normalization of diverse timestamp formats, sensor ID canonicalization, and position data validation
 - **Baseline Integration**: Built-in support for comparing against PriSTI (diffusion-based imputation) and ORBIT methods
 - **Reproducible Experiments**: Comprehensive artifact management including model checkpoints, scaler parameters, adjacency matrices, and configuration snapshots
+- **Config-Driven Integrations**: IoTDB persistence and LLM assistant behavior are controlled through environment configuration.
+- **Run Inspection Utilities**: Built-in scripts support IoTDB initialization, verification, and reconstruction of stored simulation runs into analysis-friendly CSV views.
 
 ---
 
@@ -79,8 +85,8 @@ The framework is particularly well-suited for applications involving particulate
 
 TSGuard follows a three-tier architecture:
 
-1. **Presentation Layer** (`main_app.py`, `components/`): Streamlit-based user interface handling data upload, visualization, and user interactions
-2. **Business Logic Layer** (`helpers.py`, `utils/`): Data preprocessing, normalization, state management, and configuration
+1. **Presentation Layer** (`main_app.py`, `components/`): Streamlit-based user interface handling data upload, visualization, simulation control, and user interactions
+2. **Application and Integration Layer** (`helpers.py`, `utils/`, `integrations/`): Data preprocessing, normalization, state management, IoTDB persistence, and assistant backend orchestration
 3. **Model Layer** (`models/simulation_original.py`): Core machine learning components including GCN-LSTM architecture, training pipelines, and inference engines
 
 ### Component Structure
@@ -89,18 +95,31 @@ TSGuard follows a three-tier architecture:
 ts_guard/
 ├── main_app.py                    # Main Streamlit application entry point
 ├── components/                    # UI component modules
-│   ├── sidebar.py                # File upload interface
+│   ├── sidebar.py                 # File upload interface
 │   ├── settings.py                # Configuration panels (constraints, thresholds, etc.)
 │   ├── buttons.py                 # Action buttons (train, simulate)
 │   ├── containers.py              # Visualization placeholders
 │   └── chatbot.py                 # AI assistant interface
+├── integrations/
+│   ├── iotdb/                     # IoTDB persistence backend
+│   └── llm/                       # LLM assistant backend
+├── scripts/
+│   ├── init_iotdb.py              # Initialize IoTDB schema / database
+│   ├── verify_iotdb.py            # Verify IoTDB connectivity and schema
+│   └── show_run_values.py         # Inspect and export stored runs
+├── docker/
+│   └── iotdb/
+│       ├── data/                  # Persistent IoTDB data
+│       └── logs/                  # IoTDB container logs
+├── docker-compose.iotdb.yml       # IoTDB Docker service definition
 ├── helpers.py                     # Data loading, normalization, state initialization
 ├── models/
 │   └── simulation_original.py     # Core model implementation (GCN-LSTM, training, inference)
 ├── PRISTI/                        # PriSTI baseline integration
 │   ├── main_model.py              # PriSTI diffusion model
 │   ├── layers.py                  # Neural network layers
-│   ├── dataset_*.py               # Dataset loaders for various domains
+│   ├── dataset_*.py               # Dataset loaders for various 
+domains
 │   └── config/                    # Configuration files
 ├── utils/
 │   └── config.py                  # Default configuration values
@@ -154,6 +173,8 @@ During real-time inference, TSGuard follows a multi-stage process:
 - 🐍 Python 3.10 or higher
 - 📦 pip package manager
 - 🚀 (Optional) CUDA-capable GPU for accelerated training (PyTorch with CUDA support)
+- 🐳 Docker and Docker Compose plugin (required for optional IoTDB persistence)
+- 🔑 Groq API key for the hybrid assistant
 
 ### Step-by-Step Installation
 
@@ -163,18 +184,60 @@ During real-time inference, TSGuard follows a multi-stage process:
    cd ts_guard
    ```
 
-2. **🔧 Create a virtual environment** (recommended):
+2. **🐳 Install and verify Docker** (required if you want IoTDB persistence):
+
+   **macOS**
+   ```bash
+   open -a Docker
+   docker --version
+   docker compose version
+   docker run hello-world
+   ```
+
+   **Linux (Ubuntu-based distributions)**
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y ca-certificates curl
+
+   sudo install -m 0755 -d /etc/apt/keyrings
+   sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+   sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+   echo \
+   "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+   $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+   sudo apt-get update
+   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+   sudo systemctl enable --now docker
+   docker --version
+   docker compose version
+   sudo docker run hello-world
+   ```
+
+   **Windows**
+      Install Docker Desktop for Windows, and enable the WSL 2 backend if prompted. Then start Docker Desktop and verify:
+
+   ```bash
+   docker --version
+   docker compose version
+   docker run hello-world
+   ```
+
+3. **🔧 Create a virtual environment** (recommended):
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **📚 Install dependencies**:
+4. **📚 Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **⚡ Install PyTorch** (if not included in requirements.txt):
+5. **⚡ Install PyTorch** (if not included in requirements.txt):
    ```bash
    # For CPU-only (default)
    pip install torch torchvision torchaudio
@@ -186,7 +249,7 @@ During real-time inference, TSGuard follows a multi-stage process:
    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
    ```
 
-5. **✅ Verify installation**:
+6. **✅ Verify installation**:
    ```bash
    python -c "import torch; import streamlit; import pandas; print('Installation successful')"
    ```
@@ -203,13 +266,23 @@ During real-time inference, TSGuard follows a multi-stage process:
 
 ### Interactive Web Interface
 
-1. **🚀 Launch the Streamlit application**:
+1. **Start the IoTDB backend**
+
+   If IoTDB persistence is enabled in `.env`, start and verify the service before launching the application:
+
+   ```bash
+   docker compose -f docker-compose.iotdb.yml up -d
+   python scripts/init_iotdb.py
+   python scripts/verify_iotdb.py
+   ```
+
+2. **🚀 Launch the Streamlit application**:
    ```bash
    streamlit run main_app.py
    ```
    The application will open in your default web browser at `http://localhost:8501`
 
-2. **📤 Upload Required Data Files** (via sidebar):
+3. **📤 Upload Required Data Files** (via sidebar):
    - **📊 Training Data (Ground Truth)**: Complete time series with all sensor values
      - Format: CSV or TXT file
      - Required column: `datetime` (or `timestamp`, `date`, `time`)
@@ -224,25 +297,33 @@ During real-time inference, TSGuard follows a multi-stage process:
      - Required columns: `sensor_id`, `latitude`, `longitude`
      - Alternative: Two-column format (longitude, latitude) with sensor IDs as index
 
-3. **⚙️ Configure Settings** (expandable panel):
+4. **⚙️ Configure Settings** (expandable panel):
    - **Constraints**: Define spatial (distance thresholds) and temporal (month-specific) constraints
    - **Thresholds**: Set delay thresholds (σ) for missing value detection
    - **Graph Options**: Configure graph size and adjacency parameters
    - **Simulation**: Adjust simulation speed and replay parameters
    - **Captors**: Add dynamic sensors or force sensors offline for testing
 
-4. **🧠 Train the Model**:
+5. **🧠 Train the Model**:
    - Click **"🧠 Start TSGuard training"**
    - Training progress will be displayed
    - Model artifacts will be saved to `generated/` directory
 
-5. **▶️ Run Simulation**:
+6. **▶️ Run Simulation**:
    - Click **"▶️ Start TSGuard Simulation"**
    - Real-time visualization will show:
      - Interactive map with sensor locations and status
      - Missing value gauge (system health indicator)
      - Time series charts with imputed values highlighted
    - Access **Settings → Models Comparison** to compare TSGuard with baseline methods
+
+### Inspect Stored Runs
+
+When IoTDB persistence is enabled, stored runs can be inspected from the command line:
+
+```bash
+python scripts/show_run_values.py
+```
 
 ### Example Workflow
 
@@ -334,6 +415,18 @@ The video illustrates:
 - **`buttons.py`**: Action triggers for training and simulation
 - **`containers.py`**: Placeholder management for dynamic visualizations
 - **`chatbot.py`**: AI assistant for system guidance and troubleshooting
+
+#### 4. 🗄️ IoTDB Integration (`integrations/iotdb/`)
+
+- Handles optional persistence of accepted simulation outputs in Apache IoTDB
+- Uses run-scoped paths to avoid collisions across repeated simulations
+- Supports schema initialization, connectivity verification, canonical writes, and readback utilities
+- Exposes reconstruction helpers used by the run inspection script
+
+#### 5. 💬 LLM Integration (`integrations/llm/`)
+
+- Uses Groq as the primary remote LLM provider
+- Builds compact live-system summaries to ground assistant responses
 
 ---
 
@@ -434,7 +527,7 @@ Compare TSGuard imputation results with baseline methods (PriSTI, ORBIT) side-by
 
 ![TSGuard Assistant](images/screenshots/tsguard_assistant.png)
 
-AI-powered assistant providing system guidance and troubleshooting support.
+AI-powered assistant providing system guidance and troubleshooting support through a Groq-backed LLM with rule-based fallback.
 
 ---
 
@@ -491,6 +584,8 @@ TSGuard includes integration with two baseline methods:
 3. **Loss Function**: Customize `masked_loss()` for different objectives
 4. **UI Components**: Extend `components/` modules for additional features
 5. **Data Loaders**: Adapt `helpers.py` for different data sources
+6. **IoTDB Persistence**: Extend `integrations/iotdb/` for alternative schemas, write policies, or readback utilities
+7. **Assistant Backend**: Adjust `integrations/llm/` for provider selection, prompt/context construction, or fallback behavior
 
 ---
 
@@ -504,12 +599,17 @@ TSGuard saves comprehensive artifacts for reproducibility:
 - **Scaler Parameters**: `generated/model_TSGuard_scaler.json` (min/max values per sensor)
 - **Adjacency Matrix**: `generated/model_TSGuard_adjacency.json` (spatial relationships)
 - **Configuration**: `generated/model_TSGuard_imputer_config.json` (hyperparameters)
+- **Canonical Store**: Apache IoTDB stores accepted simulation outputs under run-scoped paths for reproducible inspection and replay
 
 ### Experiment Tracking
 
 - **Imputation Logs**: `tsguard_imputations.csv` (timestamped imputation records)
 - **Audit Trail**: `outputs/audit.csv` (system events and decisions)
 - **Metrics**: `outputs/metrics_by_sensor.csv` (per-sensor performance)
+- **Run Views**: `outputs/run_views/` (reconstructed wide-format exports from stored IoTDB runs)
+- **Canonical Persistence Paths**: `root.tsguard.<dataset>.<run_id>.sensor_<sensor_id>` (when IoTDB is enabled)
+
+CSV outputs remain the audit and experiment artifact layer, while IoTDB acts as the optional canonical queryable time-series store for accepted simulation outputs.
 
 ---
 
@@ -523,7 +623,7 @@ TSGuard saves comprehensive artifacts for reproducibility:
 - **Asma Abboura** — `a.abboura@univ-chlef.dz`  
   Hassiba Ben Bouali University, Chlef, Algeria
 
-- **Abhijith Senthilkumar** — `abhijith.senthilkumar@uni.lu`  
+- **Abhijith Senthilkumar** — `abhijith.senthilkumar.001@student.uni.lu`  
   Interdisciplinary Centre for Security, Reliability and Trust (SnT), University of Luxembourg
 
 ### Affiliations
@@ -540,7 +640,7 @@ If you use TSGuard in your research, please cite:
   title={TSGuard: Time-Series Guard for Real-Time Environmental Data Imputation},
   author={Hocine, Imane and Abboura, Asma and Senthilkumar, Abhijith},
   year={2025},
-  version={0.1},
+  version={0.2},
   license={Apache-2.0},
   url={https://github.com/your-repo/tsguard}
 }
@@ -569,5 +669,5 @@ The development of TSGuard was supported by research collaborations between the 
 
 ---
 
-**Last Updated**: December 2025  
+**Last Updated**: December 2026  
 **Maintained by**: TSGuard Development Team
