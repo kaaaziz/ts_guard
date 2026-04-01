@@ -636,10 +636,10 @@ CSV outputs remain the audit and experiment artifact layer, while IoTDB acts as 
 If you use TSGuard in your research, please cite:
 
 ```bibtex
-@software{tsguard2025,
+@software{tsguard2026,
   title={TSGuard: Time-Series Guard for Real-Time Environmental Data Imputation},
   author={Hocine, Imane and Abboura, Asma and Senthilkumar, Abhijith},
-  year={2025},
+  year={2026},
   version={0.2},
   license={Apache-2.0},
   url={https://github.com/your-repo/tsguard}
