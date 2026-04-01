@@ -1,7 +1,7 @@
 # TSGuard: Time-Series Guard for Real-Time Environmental Data Imputation
 
 **Version:** 0.2  
-**Last Updated:** 2026
+**Last Updated:** 2026  
 **License:** Apache-2.0
 
 ---
